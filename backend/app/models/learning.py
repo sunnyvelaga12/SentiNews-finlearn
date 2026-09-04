@@ -45,6 +45,7 @@ class LearningSession(Base):
     estimated_minutes = Column(Integer, default=4, nullable=False)
     started_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     completed_at = Column(DateTime(timezone=True), nullable=True)
+    current_position = Column(Integer, default=1, nullable=False)
 
     items = relationship("LearningSessionItem", back_populates="session", cascade="all, delete-orphan", order_by="LearningSessionItem.position", lazy="selectin")
 

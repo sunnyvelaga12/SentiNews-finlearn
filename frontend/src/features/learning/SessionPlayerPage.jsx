@@ -4,7 +4,7 @@ import { telemetry } from '../../services/telemetry';
 import { apiClient } from '../../services/apiClient';
 import { X, ArrowRight, Award, CheckCircle2, AlertCircle, HelpCircle, Check, RefreshCw, Eye, Sliders, BarChart2, AlertTriangle, Zap, Target, Shield, Flame, Lightbulb, } from 'lucide-react';
 import { CandlestickVisualizer, formatCurrency } from '../../components/charts/CandlestickVisualizer';
-import { TableRenderer, SEBIDisclaimer } from './components/renderers/RendererRegistry';
+import { TableRenderer, SEBIDisclaimer, getRenderer } from './components/renderers/RendererRegistry';
 export const SessionPlayerPage = () => {
     const { sessionId } = useParams();
     const navigate = useNavigate();
@@ -98,7 +98,7 @@ export const SessionPlayerPage = () => {
                 if (!isUuid || currentSessId === 'active') {
                     const createData = await apiClient('/api/v1/learning/sessions', {
                         method: 'POST',
-                        body: JSON.stringify({ mode: 'DEFAULT', lesson_slug: location.state?.lessonSlug || 'what-is-a-candlestick' }),
+                        body: JSON.stringify({ mode: 'DEFAULT', lesson_slug: location.state?.lessonSlug || '' }),
                     });
                     currentSessId = createData.session_id;
                     if (isMounted) {
@@ -118,6 +118,9 @@ export const SessionPlayerPage = () => {
                 if (isMounted) {
                     if (res.items && res.items.length > 0) {
                         setItems(res.items);
+                        if (res.resume_position && res.resume_position > 1 && res.resume_position <= res.items.length) {
+                            setCurrentIdx(res.resume_position - 1);
+                        }
                     }
                     if (res.lesson_slug)
                         setSessionLessonSlug(res.lesson_slug);
@@ -129,101 +132,10 @@ export const SessionPlayerPage = () => {
                         setSessionModuleTitle(res.module_title);
                     setIsLoading(false);
                 }
-            }
-            catch (err) {
-                console.warn('Failed to fetch session from API, loading fallback fixture:', err);
+            } catch (err) {
+                console.error('Failed to fetch session from API:', err);
                 if (isMounted) {
-                    // Robust fallback matching seeded DB content
-                    setItems([
-                        {
-                            session_item_id: 'item-1',
-                            activity_id: 'act-1',
-                            concept_id: 'candlestick_intro',
-                            activity_type: 'OBSERVE',
-                            learning_phase: 'OBSERVE',
-                            title: '01 — Visual Observation',
-                            position: 1,
-                            payload: {
-                                renderer: 'CANDLESTICK',
-                                presentation_mode: 'EXPLAIN',
-                                currency_code: 'INR',
-                                locale: 'en-IN',
-                                prompt: 'Look carefully at this candlestick. Notice the colored real body and the thin shadows (wicks) extending above and below. What do you notice?',
-                                ohlc: { open: 100, high: 120, low: 90, close: 110, timeframe: '1D' },
-                                interactive: true,
-                            },
-                        },
-                        {
-                            session_item_id: 'item-2',
-                            activity_id: 'act-2',
-                            concept_id: 'candlestick_intro',
-                            activity_type: 'PREDICT',
-                            learning_phase: 'PREDICT',
-                            title: '02 — Prediction Challenge',
-                            position: 2,
-                            payload: {
-                                renderer: 'CANDLESTICK',
-                                presentation_mode: 'THINK',
-                                currency_code: 'INR',
-                                locale: 'en-IN',
-                                prompt: 'Which price point represents the highest price reached during this period?',
-                                ohlc: { open: 100, high: 120, low: 90, close: 110, timeframe: '1D' },
-                                options: [
-                                    { id: 'opt_open', text: 'Open (₹100)' },
-                                    { id: 'opt_high', text: 'High (₹120)' },
-                                    { id: 'opt_low', text: 'Low (₹90)' },
-                                    { id: 'opt_close', text: 'Close (₹110)' },
-                                ],
-                                correct_option_id: 'opt_high',
-                                explanation: 'The High is the highest price reached during the period, represented by the top tip of the upper shadow.',
-                                misconception_map: {
-                                    opt_close: 'You chose Close. Close (₹110) is where the period ended. The High (₹120) is the highest price reached during the period. Look at the top tip of the upper shadow. Try again.',
-                                    opt_open: 'Not quite. Open is where price began the period, not the peak price reached. Look at the top tip of the candle’s shadow. Try again.',
-                                    opt_low: 'Not quite. Low is the lowest price reached during the period. Look at the top tip of the candle’s shadow. Try again.',
-                                },
-                                hints: [
-                                    'Look at the price boundaries extending above and below the real body.',
-                                    'Which part of the candle records the peak price explored during this session?',
-                                    'The highest price reached is represented by the top tip of the upper shadow.',
-                                ],
-                            },
-                        },
-                        {
-                            session_item_id: 'item-3',
-                            activity_id: 'act-3',
-                            concept_id: 'candlestick_intro',
-                            activity_type: 'EXPLAIN',
-                            learning_phase: 'EXPLAIN',
-                            title: '03 — Anatomy & Extreme Exploration',
-                            position: 3,
-                            payload: {
-                                renderer: 'CANDLESTICK',
-                                presentation_mode: 'EXPLAIN',
-                                currency_code: 'INR',
-                                locale: 'en-IN',
-                                prompt: 'High is the highest price reached during this period. The thin lines above and below the body are shadows (wicks). They show the extreme prices explored by buyers and sellers, while the colored real body shows the net difference between Open and Close.',
-                                ohlc: { open: 100, high: 120, low: 90, close: 110, timeframe: '1D' },
-                                highlight_region: 'high',
-                            },
-                        },
-                        {
-                            session_item_id: 'item-4',
-                            activity_id: 'act-4',
-                            concept_id: 'candlestick_intro',
-                            activity_type: 'PRACTICE',
-                            learning_phase: 'PRACTICE',
-                            title: '04 — Interactive Manipulation',
-                            position: 4,
-                            payload: {
-                                renderer: 'CANDLESTICK',
-                                presentation_mode: 'INTERACTIVE',
-                                currency_code: 'INR',
-                                locale: 'en-IN',
-                                prompt: 'Move the Close price slider upward and downward. Watch how the candle morphs: what happens when Close drops below Open? What happens when Close rises above Open?',
-                                ohlc: { open: 100, high: 120, low: 90, close: 110, timeframe: '1D' },
-                            },
-                        },
-                    ]);
+                    setError(err.message || 'Failed to load learning session. Please return to the module and start again.');
                     setIsLoading(false);
                 }
             }
@@ -235,7 +147,12 @@ export const SessionPlayerPage = () => {
     }, [sessionId, location.state]);
     const currentItem = items[currentIdx] || null;
     const isQuestionStep = currentItem &&
-        ['PREDICT', 'MISCONCEPTION_CHECK', 'APPLICATION', 'TRANSFER'].includes(currentItem.activity_type?.toUpperCase());
+        (currentItem.is_interactive === true ||
+         currentItem.response_type === 'SINGLE_CHOICE' ||
+         currentItem.response_type === 'IMAGE_SELECTION' ||
+         currentItem.response_type === 'TRUE_FALSE' ||
+         (currentItem.payload?.options && currentItem.payload.options.length > 0) ||
+         ['PREDICT', 'MISCONCEPTION_CHECK', 'APPLICATION', 'TRANSFER'].includes(currentItem.activity_type?.toUpperCase()));
     // Contract-Driven Presentation Mode Resolution
     const resolvePresentationMode = () => {
         if (!currentItem)
@@ -264,17 +181,19 @@ export const SessionPlayerPage = () => {
         setIsHintOpen(false);
         if (nextIdx >= items.length) {
             setIsLessonCompleted(true);
-            const targetSlug = sessionLessonSlug || 'what-is-a-candlestick';
-            // 1. Authoritative backend completion recording
-            try {
-                apiClient(`/api/v1/curriculum/lessons/${targetSlug}/complete`, {
-                    method: 'POST',
-                }).catch((err) => {
-                    console.warn('Lesson completion recorded offline / locally:', err);
-                });
-            }
-            catch (err) {
-                console.warn('Lesson completion error:', err);
+            const targetSlug = sessionLessonSlug;
+            if (targetSlug) {
+                // 1. Authoritative backend completion recording
+                try {
+                    apiClient(`/api/v1/curriculum/lessons/${targetSlug}/complete`, {
+                        method: 'POST',
+                    }).catch((err) => {
+                        console.warn('Lesson completion recorded offline / locally:', err);
+                    });
+                }
+                catch (err) {
+                    console.warn('Lesson completion error:', err);
+                }
             }
             // 2. Local progression cache for instant zero-lag UI updates across pages
             try {
@@ -298,6 +217,12 @@ export const SessionPlayerPage = () => {
         else {
             setCurrentIdx(nextIdx);
             const nextItem = items[nextIdx];
+            if (activeSessionId && activeSessionId !== 'demo' && nextItem) {
+                apiClient(`/api/v1/learning/sessions/${activeSessionId}/progress`, {
+                    method: 'POST',
+                    body: JSON.stringify({ position: nextIdx + 1 }),
+                }).catch((err) => console.warn('Session progress tracking failed (offline mode):', err));
+            }
             if (nextItem) {
                 telemetry.track('activity_presented', {
                     sessionId: activeSessionId,
@@ -347,8 +272,9 @@ export const SessionPlayerPage = () => {
         // Correct Answer: Submit attempt to Canonical Evidence Layer
         setIsSubmitting(true);
         try {
-            if (activeSessionId && activeSessionId !== 'demo') {
-                await apiClient(`/api/v1/learning/sessions/${activeSessionId}/activities/${currentItem.session_item_id}/attempts`, {
+            const targetActivityId = currentItem.activity_id || currentItem.session_item_id;
+            if (activeSessionId && activeSessionId !== 'demo' && targetActivityId) {
+                await apiClient(`/api/v1/learning/sessions/${activeSessionId}/activities/${targetActivityId}/attempts`, {
                     method: 'POST',
                     body: JSON.stringify({
                         response: { selected_option_id: selectedOption },
@@ -431,54 +357,21 @@ export const SessionPlayerPage = () => {
     }, [currentItem, selectedOption, remediation.status, currentIdx, isQuestionStep]);
     // Authoritative Next Action Resolution
     const resolveNextAction = () => {
-        const lesson = sessionLessonSlug.toLowerCase();
-        const isMarketBasics = sessionModuleSlug.includes('market-basics') || lesson.includes('bid-ask');
-        if (isMarketBasics) {
-            return {
-                type: 'SINGLE_LESSON_MILESTONE',
-                title: 'Review Bid-Ask Spread',
-                ctaLabel: 'Review Bid-Ask Spread →',
-                url: '/learn/lessons/bid-ask-spread',
-                targetType: 'LESSON',
-                targetSlug: 'bid-ask-spread',
-                moduleSlug: 'market-basics',
-            };
-        }
-        if (lesson.includes('what-is-a-candlestick') || lesson === 'what-is-a-candlestick') {
-            return {
-                type: 'NEXT_UNIT_LESSON',
-                title: 'Lesson 2: Open, High, Low & Close',
-                ctaLabel: 'Continue to Lesson 2 · Open, High, Low & Close →',
-                url: '/learn/lessons/open-high-low-close',
-                targetType: 'LESSON',
-                targetSlug: 'open-high-low-close',
-                moduleSlug: 'candlestick-foundations',
-            };
-        }
         return {
             type: 'NEXT_MODULE_OVERVIEW',
             title: 'Return to Units Overview',
             ctaLabel: 'Return to Units Overview →',
-            url: `/learn/modules/${sessionModuleSlug || 'candlestick-foundations'}/units`,
+            url: sessionModuleSlug ? `/learn/modules/${sessionModuleSlug}/units` : '/learn',
             targetType: 'MODULE',
-            targetSlug: sessionModuleSlug || 'candlestick-foundations',
-            moduleSlug: sessionModuleSlug || 'candlestick-foundations',
+            targetSlug: sessionModuleSlug,
+            moduleSlug: sessionModuleSlug,
         };
     };
     const nextAction = resolveNextAction();
     const resolveVerifiedCapabilities = () => {
-        const lesson = sessionLessonSlug.toLowerCase();
-        if (sessionModuleSlug.includes('market-basics') || lesson.includes('bid-ask')) {
-            return [
-                'Identifies best bid and best ask in order books',
-                'Explains buyer-seller spread and execution friction',
-                'Distinguishes limit orders from market executions',
-            ];
-        }
         return [
-            'Identifies the 4 crucial price coordinates (OHLC)',
-            'Distinguishes the colored real body from extreme wicks (shadows)',
-            'Interprets price exploration vs net period closing change',
+            'Demonstrated core understanding through structured practice',
+            'Completed all interactive discovery steps and verified evidence',
         ];
     };
     const verifiedCapabilities = resolveVerifiedCapabilities();
@@ -643,9 +536,24 @@ export const SessionPlayerPage = () => {
 
         {/* Learning Object: Visualizer container */}
         <div className="w-full">
-          {payload.renderer === 'TABLE' ? (<div className="w-full">
-              <TableRenderer payload={payload} effectiveInteraction={currentItem.activity_type}/>
-            </div>) : (<CandlestickVisualizer initialOHLC={effectiveOHLC} presentationMode={activePresentationMode} currencyCode={currencyCode} locale={locale} interactive={currentItem.activity_type === 'PRACTICE'} showMetrics={activePresentationMode === 'EXPLAIN'} showLabels={true}/>)}
+          {(() => {
+            const rendererType = (currentItem.content_type || payload.renderer || (payload.ohlc ? 'CANDLESTICK' : 'TEXT')).toUpperCase();
+            if (rendererType === 'CANDLESTICK' && (payload.ohlc || effectiveOHLC)) {
+              return (
+                <CandlestickVisualizer
+                  initialOHLC={effectiveOHLC}
+                  presentationMode={activePresentationMode}
+                  currencyCode={currencyCode}
+                  locale={locale}
+                  interactive={currentItem.activity_type === 'PRACTICE'}
+                  showMetrics={activePresentationMode === 'EXPLAIN'}
+                  showLabels={true}
+                />
+              );
+            }
+            const Component = getRenderer(rendererType);
+            return <Component payload={payload} effectiveInteraction={currentItem.activity_type} />;
+          })()}
         </div>
 
         {/* Provenance & SEBI Context Callout */}
@@ -713,22 +621,29 @@ export const SessionPlayerPage = () => {
               </span>
             </div>
 
-            <div className="grid grid-cols-1 gap-2.5">
+            <div className={options.some(o => o.image_url) ? "grid grid-cols-1 sm:grid-cols-2 gap-3" : "grid grid-cols-1 gap-2.5"}>
               {options.map((opt, optIdx) => {
                 const isSelected = selectedOption === opt.id;
-                return (<button key={opt.id} type="button" disabled={remediation.status === 'CORRECT'} onClick={() => setSelectedOption(opt.id)} className={`group p-4 rounded-xl border text-left text-sm font-semibold transition-all flex items-center justify-between cursor-pointer ${isSelected
+                return (<button key={opt.id} type="button" disabled={remediation.status === 'CORRECT'} onClick={() => setSelectedOption(opt.id)} className={`group p-4 rounded-xl border text-left text-sm font-semibold transition-all flex flex-col sm:flex-row sm:items-center justify-between cursor-pointer gap-2 ${isSelected
                         ? 'border-blue-600 bg-blue-50/70 text-blue-950 shadow-sm ring-1 ring-blue-600/30'
                         : 'border-slate-200 bg-white text-slate-800 hover:border-slate-300 hover:bg-slate-50/60 shadow-sm'} ${remediation.status === 'CORRECT' ? 'opacity-80 cursor-not-allowed' : ''}`}>
-                    <div className="flex items-center gap-3">
-                      <span className={`font-mono text-xs font-bold px-2 py-0.5 rounded border transition-colors ${isSelected
+                    {opt.image_url && (
+                      <img
+                        src={opt.image_url}
+                        alt={opt.text || opt.label || 'Choice visual'}
+                        className="w-full sm:w-28 h-20 object-contain rounded-lg bg-slate-50 border border-slate-200 p-1"
+                      />
+                    )}
+                    <div className="flex items-center gap-3 flex-1">
+                      <span className={`font-mono text-xs font-bold px-2 py-0.5 rounded border transition-colors shrink-0 ${isSelected
                         ? 'bg-blue-600 text-white border-blue-600'
                         : 'bg-slate-100 text-slate-600 border-slate-200 group-hover:border-slate-300'}`}>
                         {optIdx + 1}
                       </span>
-                      <span>{opt.text}</span>
+                      <span>{opt.text || opt.label}</span>
                     </div>
 
-                    <div className={`w-5 h-5 rounded-full border flex items-center justify-center transition-all ${isSelected
+                    <div className={`w-5 h-5 rounded-full border flex items-center justify-center transition-all shrink-0 ${isSelected
                         ? 'border-blue-600 bg-blue-600 text-white'
                         : 'border-slate-300 group-hover:border-slate-400'}`}>
                       {isSelected && <Check className="w-3 h-3 stroke-[3]"/>}

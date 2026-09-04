@@ -39,8 +39,8 @@ class SessionAuthorizationPolicy(BaseAuthorizationPolicy):
             # Creation is allowed for authenticated users or demo fallback
             return AuthorizationDecision.allow({"user_id": calling_user_id})
 
-        # 2. Action: READ_SESSION
-        if action == AuthorizationAction.READ_SESSION:
+        # 2. Action: READ_SESSION or UPDATE_PROGRESS
+        if action in (AuthorizationAction.READ_SESSION, AuthorizationAction.UPDATE_PROGRESS):
             if extra.get("is_demo"):
                 return AuthorizationDecision.allow({"user_id": None, "session": None})
             if not resource_id:

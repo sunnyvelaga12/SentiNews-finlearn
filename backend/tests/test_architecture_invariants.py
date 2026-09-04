@@ -118,6 +118,7 @@ def test_active_models_metadata_registration():
         "audit_logs",
         "telemetry_events",
         "idempotency_records",
+        "media_assets",
     }
 
     assert expected_core_tables.issubset(table_names), (

@@ -21,36 +21,7 @@ export const ReviewInbox = ({ onOpenLesson, userRole = 'SUPER_ADMIN', }) => {
         }
         catch (err) {
             console.error('Failed to fetch pending reviews:', err);
-            // Fallback mock items if server has no pending items yet
-            setReviews([
-                {
-                    lesson_id: 'l-candlestick-1',
-                    slug: 'what-is-a-candlestick',
-                    version_id: 'v-candlestick-1',
-                    version_number: 2,
-                    title: 'What is a Candlestick? Anatomy & Coordinates',
-                    status: 'FINANCE_REVIEW',
-                    created_at: new Date(Date.now() - 3600000 * 2).toISOString(),
-                },
-                {
-                    lesson_id: 'l-candlestick-2',
-                    slug: 'candlestick-anatomy-wick-and-body',
-                    version_id: 'v-candlestick-2',
-                    version_number: 1,
-                    title: 'Candlestick Anatomy: Wick vs Real Body',
-                    status: 'COMPLIANCE_REVIEW',
-                    created_at: new Date(Date.now() - 3600000 * 5).toISOString(),
-                },
-                {
-                    lesson_id: 'l-candlestick-3',
-                    slug: 'bullish-momentum-dynamics',
-                    version_id: 'v-candlestick-3',
-                    version_number: 1,
-                    title: 'Bullish Momentum Dynamics',
-                    status: 'EDITOR_REVIEW',
-                    created_at: new Date(Date.now() - 3600000 * 12).toISOString(),
-                },
-            ]);
+            setReviews([]);
         }
     };
     const handleReviewAction = async (action) => {

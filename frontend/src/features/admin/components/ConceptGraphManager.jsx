@@ -31,12 +31,7 @@ export const ConceptGraphManager = () => {
         catch (err) {
             console.warn('Could not load concepts from live DB:', err);
             setErrorMsg(err.message || 'Failed to load concepts');
-            // Graceful fallback to initial seed list
-            setConcepts([
-                { id: '05276b51-7713-4e1a-affd-131d6b6c35f9', slug: 'inflation-basics', title: 'Inflation Basics', domain: 'FOUNDATIONS', jurisdiction: 'GLOBAL', learning_level: 'L0_INTRO' },
-                { id: '11111111-2222-3333-4444-555555555555', slug: 'purchasing-power', title: 'Purchasing Power', domain: 'FOUNDATIONS', jurisdiction: 'GLOBAL', learning_level: 'L0_INTRO' },
-                { id: '22222222-3333-4444-5555-666666666666', slug: 'interest-rates', title: 'Interest Rates & Returns', domain: 'FOUNDATIONS', jurisdiction: 'GLOBAL', learning_level: 'L1_BUILDER' }
-            ]);
+            setConcepts([]);
         }
         finally {
             setLoading(false);

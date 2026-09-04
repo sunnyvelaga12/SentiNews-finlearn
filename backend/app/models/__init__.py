@@ -13,6 +13,7 @@ from app.models.learning import (
     LearningSessionItem,
     LearningAttempt,
 )
+from app.models.media import MediaAsset
 
 __all__ = [
     "TelemetryEvent",
@@ -40,4 +41,5 @@ __all__ = [
     "LearningSession",
     "LearningSessionItem",
     "LearningAttempt",
+    "MediaAsset",
 ]

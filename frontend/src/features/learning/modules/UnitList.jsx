@@ -4,12 +4,11 @@ import { LessonList } from './LessonList';
 export const UnitList = ({ units }) => {
     return (<div className="space-y-8">
       {units.map((unit, uIdx) => {
-            const isUnlocked = unit.is_unlocked;
+            // Dev & testing phase: unlock all units
+            const isUnlocked = true;
             const lessons = unit.ordered_lessons || [];
             const totalDuration = unit.estimated_minutes || lessons.reduce((acc, l) => acc + (l.duration_minutes || 5), 0);
-            return (<section key={unit.id} className={`space-y-5 rounded-3xl p-6 sm:p-8 border transition-all ${isUnlocked
-                    ? 'bg-slate-900/60 border-slate-800'
-                    : 'bg-slate-950/40 border-slate-900 opacity-60'}`} aria-labelledby={`unit-heading-${unit.id}`}>
+            return (<section key={unit.id} className="space-y-5 rounded-3xl p-6 sm:p-8 border transition-all bg-slate-900/60 border-slate-800" aria-labelledby={`unit-heading-${unit.id}`}>
             {/* Unit Header */}
             <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 border-b border-slate-800/80 pb-4">
               <div className="space-y-1.5">

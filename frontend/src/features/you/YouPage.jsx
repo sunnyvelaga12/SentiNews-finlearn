@@ -16,55 +16,42 @@ export const YouPage = () => {
         }
     });
     const [isResetting, setIsResetting] = useState(false);
-    const [concepts, setConcepts] = useState([
-        { concept_slug: 'candlestick_intro', title: 'What is a Candlestick?', status: 'STRONG', mastery_percentage: 100 },
-        { concept_slug: 'ohlc_anatomy', title: 'Open, High, Low & Close', status: 'GROWING', mastery_percentage: 65 },
-        { concept_slug: 'wick_body_dynamics', title: 'Body & Shadow Dynamics', status: 'NEXT', mastery_percentage: 0 },
-        { concept_slug: 'bullish_bearish_sentiment', title: 'Bullish vs Bearish Anatomy', status: 'NEXT', mastery_percentage: 0 },
-        { concept_slug: 'concept_bid_ask_spread', title: 'Order Matching & Bid-Ask Spread', status: 'STRONG', mastery_percentage: 85 },
-    ]);
+    const [concepts, setConcepts] = useState([]);
+    const [activeModule, setActiveModule] = useState(null);
+
     // Sync server-authoritative module progression on mount
     useEffect(() => {
-        apiClient('/api/v1/curriculum/modules/candlestick-foundations')
+        apiClient('/api/v1/curriculum/modules')
             .then((data) => {
-            if (data.ordered_units) {
-                const serverCompleted = data.ordered_units
-                    .flatMap((u) => u.ordered_lessons || [])
-                    .filter((l) => l.status === 'COMPLETED')
-                    .map((l) => l.slug);
-                if (serverCompleted.length > 0) {
-                    setCompletedLessonSlugs((prev) => {
-                        const combined = Array.from(new Set([...prev, ...serverCompleted]));
-                        try {
-                            localStorage.setItem('sentinews_completed_lessons', JSON.stringify(combined));
-                        }
-                        catch (e) { }
-                        return combined;
-                    });
+                const modules = Array.isArray(data) ? data : data?.modules || [];
+                if (modules.length > 0) {
+                    setActiveModule(modules[0]);
                 }
-            }
-        })
+            })
             .catch(() => {
-            // Fallback to local cache
-        });
+                // Fallback
+            });
+
         apiClient('/api/v1/mastery')
             .then((data) => {
-            if (data.mastery && Array.isArray(data.mastery) && data.mastery.length > 0) {
-                setConcepts(data.mastery.map((m) => ({
-                    concept_slug: m.concept_slug,
-                    title: m.concept_title,
-                    status: m.mastery_score >= 8000 ? 'STRONG' : m.mastery_score > 0 ? 'GROWING' : 'NEXT',
-                    mastery_percentage: Math.round(m.mastery_score / 100),
-                })));
-            }
-        })
+                if (data.mastery && Array.isArray(data.mastery) && data.mastery.length > 0) {
+                    setConcepts(data.mastery.map((m) => ({
+                        concept_slug: m.concept_slug,
+                        title: m.concept_title,
+                        status: m.mastery_score >= 8000 ? 'STRONG' : m.mastery_score > 0 ? 'GROWING' : 'NEXT',
+                        mastery_percentage: Math.round(m.mastery_score / 100),
+                    })));
+                }
+            })
             .catch(() => {
-            // Fallback default state active
-        });
+                // Fallback default state active
+            });
     }, []);
+
     const completedCount = completedLessonSlugs.length;
     const totalLessons = 4;
     const completionPct = Math.min(100, Math.round((completedCount / totalLessons) * 100));
+
     const handleResetProgress = async () => {
         if (isResetting)
             return;
@@ -81,32 +68,19 @@ export const YouPage = () => {
             setIsResetting(false);
         }
     };
+
     const getNextActionDetails = () => {
-        if (completedCount === 0) {
+        if (activeModule) {
             return {
-                title: 'Lesson 1: What is a Candlestick?',
-                ctaLabel: 'Start Lesson 1 →',
-                url: '/learn/modules/candlestick-foundations/units',
-            };
-        }
-        if (completedCount === 1) {
-            return {
-                title: 'Lesson 2: Open, High, Low & Close',
-                ctaLabel: 'Continue to Lesson 2 →',
-                url: '/learn/modules/candlestick-foundations/units',
-            };
-        }
-        if (completedCount === 2) {
-            return {
-                title: 'Lesson 3: Body & Shadow Dynamics',
-                ctaLabel: 'Continue to Lesson 3 →',
-                url: '/learn/modules/candlestick-foundations/units',
+                title: activeModule.title,
+                ctaLabel: 'Continue Learning →',
+                url: `/learn/modules/${activeModule.slug}/units`,
             };
         }
         return {
-            title: 'Candlestick Foundations Capstone',
-            ctaLabel: 'Take Capstone Challenge →',
-            url: '/learn/modules/candlestick-foundations',
+            title: 'Explore Curriculum Modules',
+            ctaLabel: 'Browse Modules →',
+            url: '/learn',
         };
     };
     const nextAction = getNextActionDetails();
@@ -214,7 +188,7 @@ export const YouPage = () => {
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-base font-bold text-[#17202A]">Current Learning Focus</h3>
-                  <p className="text-xs text-slate-500">Candlestick Foundations · Unit 1: Understanding Candle Mechanics</p>
+                  <p className="text-xs text-slate-500">{activeModule ? `${activeModule.title} · Active Track` : 'Explore interactive financial modules'}</p>
                 </div>
                 <span className="font-mono text-xs font-bold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-full border border-blue-200">
                   {completionPct}% Complete
@@ -247,82 +221,88 @@ export const YouPage = () => {
 
         {/* Tab 2: Concept Mastery */}
         {activeTab === 'KNOWLEDGE_MAP' && (<div className="space-y-4 animate-fade-in">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {concepts.map((c) => (<div key={c.concept_slug} className="p-5 rounded-2xl bg-white border border-slate-200 shadow-sm space-y-3">
-                  <div className="flex justify-between items-start">
-                    <h4 className="text-sm font-bold text-[#17202A]">{c.title}</h4>
-                    <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border ${c.status === 'STRONG'
-                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                    : c.status === 'GROWING'
-                        ? 'bg-blue-50 text-blue-700 border-blue-200'
-                        : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
-                      {c.status}
-                    </span>
-                  </div>
+            {concepts.length === 0 ? (
+              <div className="p-8 text-center bg-white rounded-2xl border border-slate-200 shadow-sm space-y-2">
+                <Brain className="w-8 h-8 text-slate-400 mx-auto" />
+                <h4 className="text-sm font-bold text-slate-800">No Concept Masteries Recorded Yet</h4>
+                <p className="text-xs text-slate-500">
+                  Complete interactive lessons to build and track your personal financial concept graph.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {concepts.map((c) => (<div key={c.concept_slug} className="p-5 rounded-2xl bg-white border border-slate-200 shadow-sm space-y-3">
+                    <div className="flex justify-between items-start">
+                      <h4 className="text-sm font-bold text-[#17202A]">{c.title}</h4>
+                      <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border ${c.status === 'STRONG'
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      : c.status === 'GROWING'
+                          ? 'bg-blue-50 text-blue-700 border-blue-200'
+                          : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
+                        {c.status}
+                      </span>
+                    </div>
 
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-xs font-mono">
-                      <span className="text-slate-500">Mastery Level</span>
-                      <span className="font-bold text-slate-800">{c.mastery_percentage}%</span>
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-xs font-mono">
+                        <span className="text-slate-500">Mastery Level</span>
+                        <span className="font-bold text-slate-800">{c.mastery_percentage}%</span>
+                      </div>
+                      <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                        <div className={`h-full rounded-full transition-all duration-500 ${c.status === 'STRONG' ? 'bg-emerald-600' : 'bg-blue-600'}`} style={{ width: `${c.mastery_percentage}%` }}/>
+                      </div>
                     </div>
-                    <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                      <div className={`h-full rounded-full transition-all duration-500 ${c.status === 'STRONG' ? 'bg-emerald-600' : 'bg-blue-600'}`} style={{ width: `${c.mastery_percentage}%` }}/>
-                    </div>
-                  </div>
-                </div>))}
-            </div>
+                  </div>))}
+              </div>
+            )}
           </div>)}
 
         {/* Tab 3: Verified Badges */}
         {activeTab === 'ACHIEVEMENTS' && (<div className="space-y-4 animate-fade-in">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="p-6 rounded-2xl bg-white border border-slate-200 shadow-sm space-y-4">
-                <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${completedCount >= 4
+                <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${completedCount >= 1
                 ? 'bg-emerald-50 text-emerald-600 border border-emerald-100'
-                : completedCount >= 1
-                    ? 'bg-blue-50 text-blue-600 border border-blue-100'
-                    : 'bg-slate-100 text-slate-400 border border-slate-200'}`}>
+                : 'bg-blue-50 text-blue-600 border border-blue-100'}`}>
                   <Award className="w-6 h-6 stroke-[2.5]"/>
                 </div>
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
-                    <h4 className="text-base font-bold text-[#17202A]">Candlestick Reader</h4>
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${completedCount >= 4
+                    <h4 className="text-base font-bold text-[#17202A]">Curriculum Explorer</h4>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${completedCount >= 1
                 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                : completedCount >= 1
-                    ? 'bg-blue-50 text-blue-700 border border-blue-200'
-                    : 'bg-slate-100 text-slate-600 border border-slate-200'}`}>
-                      {completedCount >= 4 ? 'EARNED' : completedCount >= 1 ? 'IN PROGRESS' : 'LOCKED'}
+                : 'bg-blue-50 text-blue-700 border border-blue-200'}`}>
+                      {completedCount >= 1 ? 'EARNED' : 'AVAILABLE'}
                     </span>
                   </div>
                   <p className="text-xs text-slate-600 leading-relaxed">
-                    Verified capability to identify OHLC price coordinates and explain intraperiod conviction without memorizing rigid patterns.
+                    Capability credential verifying active participation and practice completion in curriculum units.
                   </p>
                 </div>
                 <div className="text-[11px] text-slate-500 flex items-center gap-1.5 pt-2 border-t border-slate-100">
                   <ShieldCheck className="w-3.5 h-3.5 text-blue-600"/>
-                  <span>SEBI Investor Education Verified Credential</span>
+                  <span>SentiNews Verified Credential</span>
                 </div>
               </div>
 
-              <div className="p-6 rounded-2xl bg-white border border-slate-200 shadow-sm space-y-4 opacity-75">
-                <div className="w-12 h-12 rounded-xl bg-slate-100 text-slate-400 border border-slate-200 flex items-center justify-center">
+              <div className="p-6 rounded-2xl bg-white border border-slate-200 shadow-sm space-y-4">
+                <div className="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 border border-blue-200 flex items-center justify-center">
                   <Target className="w-6 h-6"/>
                 </div>
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
-                    <h4 className="text-base font-bold text-slate-600">Order Book Practitioner</h4>
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
-                      LOCKED
+                    <h4 className="text-base font-bold text-[#17202A]">Financial Market Analysis</h4>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                      AVAILABLE
                     </span>
                   </div>
-                  <p className="text-xs text-slate-500 leading-relaxed">
-                    Demonstrate mastery of bid-ask spread mechanics, liquidity depth ladders, and slippage calculations.
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    Demonstrate mastery of financial concepts, active scenarios, and quantitative mechanics.
                   </p>
                 </div>
-                <div className="text-[11px] text-slate-400 flex items-center gap-1.5 pt-2 border-t border-slate-100">
-                  <Clock className="w-3.5 h-3.5"/>
-                  <span>Complete Market Basics module to unlock</span>
+                <div className="text-[11px] text-slate-500 flex items-center gap-1.5 pt-2 border-t border-slate-100">
+                  <Clock className="w-3.5 h-3.5 text-blue-600"/>
+                  <span>Unlocked for immediate testing</span>
                 </div>
               </div>
             </div>
@@ -333,26 +313,23 @@ export const YouPage = () => {
             <Card className="p-6 bg-white border border-slate-200 rounded-2xl space-y-4 shadow-sm">
               <h3 className="text-base font-bold text-[#17202A]">Recent Milestone History</h3>
               {completedCount === 0 ? (<div className="text-center py-8 space-y-3">
-                  <p className="text-xs text-slate-500">No completed milestones yet. Complete Lesson 1 to earn your first verified capability!</p>
-                  <button onClick={() => navigate('/learn/modules/candlestick-foundations/units')} className="px-4 py-2 bg-slate-900 text-white rounded-lg text-xs font-bold hover:bg-slate-800 transition-colors">
-                    Start Lesson 1 →
+                  <p className="text-xs text-slate-500">No completed milestones yet. Complete a lesson to record your first milestone!</p>
+                  <button onClick={() => navigate('/learn')} className="px-4 py-2 bg-slate-900 text-white rounded-lg text-xs font-bold hover:bg-slate-800 transition-colors cursor-pointer">
+                    Browse Modules →
                   </button>
                 </div>) : (<div className="space-y-3">
                   {completedLessonSlugs.map((slug, idx) => {
-                    const isLesson1 = slug.includes('what-is-a-candlestick') || slug === 'what-is-a-candlestick';
-                    const title = isLesson1
-                        ? 'Lesson 1: What is a Candlestick?'
-                        : slug.includes('open-high-low-close')
-                            ? 'Lesson 2: Open, High, Low & Close'
-                            : `Lesson ${idx + 1}: ${slug}`;
+                    const cleanTitle = slug
+                      .replace(/-/g, ' ')
+                      .replace(/\b\w/g, (c) => c.toUpperCase());
                     return (<div key={slug} className="flex items-center justify-between p-3.5 bg-slate-50 rounded-xl border border-slate-200 text-xs">
                         <div className="flex items-center gap-3">
                           <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center justify-center">
                             <CheckCircle2 className="w-4 h-4 text-emerald-600"/>
                           </div>
                           <div>
-                            <div className="font-bold text-[#17202A]">{title}</div>
-                            <div className="text-slate-500 text-[11px]">Candlestick Foundations · Completed</div>
+                            <div className="font-bold text-[#17202A]">{cleanTitle}</div>
+                            <div className="text-slate-500 text-[11px]">Lesson Milestone · Completed</div>
                           </div>
                         </div>
                         <span className="font-mono text-slate-500 text-[11px]">Verified</span>

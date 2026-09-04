@@ -157,3 +157,10 @@ app.include_router(mastery_router, prefix=api_v1_prefix, tags=["Mastery"])
 app.include_router(review_router, prefix=api_v1_prefix, tags=["Review"])
 app.include_router(admin_router, prefix=api_v1_prefix, tags=["Admin"])
 app.include_router(seo_router, prefix=api_v1_prefix, tags=["SEO"])
+
+import os
+from fastapi.staticfiles import StaticFiles
+
+_uploads_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../uploads"))
+os.makedirs(os.path.join(_uploads_dir, "media"), exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=_uploads_dir), name="uploads")

@@ -158,16 +158,27 @@ class LearnerCurriculumStateService:
 
     @classmethod
     def compute_badge_state(
-        cls, module_slug: str, completed_lessons: int, total_lessons: int
+        cls, module_slug: str, completed_lessons: int, total_lessons: int,
+        module_name: str = ""
     ) -> BadgeContract:
         is_earned = total_lessons > 0 and completed_lessons >= total_lessons
         is_in_progress = completed_lessons > 0 and not is_earned
 
+        # Badge title and description are derived from DB-persisted module_name,
+        # never from slug substring matching (no curriculum-specific branching).
+        badge_title = f"{module_name} Practitioner" if module_name else "Module Practitioner"
+        badge_description = (
+            f"Verified competency across all {module_name} unit milestones."
+            if module_name else
+            "Verified competency across all module unit milestones."
+        )
+
         return BadgeContract(
             id=f"badge-{module_slug}",
-            title="Candlestick Reader" if "candlestick" in module_slug else "Module Practitioner",
-            description="Verified capability to explain candle anatomy and interpret price behavior on unfamiliar charts.",
+            title=badge_title,
+            description=badge_description,
             credential_claim="Demonstrated verified application and active recall across all unit milestones.",
             status="EARNED" if is_earned else ("IN_PROGRESS" if is_in_progress else "LOCKED"),
             awarded_at=None,
         )
+

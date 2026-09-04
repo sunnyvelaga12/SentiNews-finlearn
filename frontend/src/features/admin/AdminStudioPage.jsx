@@ -43,27 +43,53 @@ export const AdminStudioPage = () => {
     const [surfaceTab, setSurfaceTab] = useState('STUDIO');
     // Role Simulator
     const [userRole, setUserRole] = useState('SUPER_ADMIN');
-    // ── 1. Fetch Curriculum Tree ────────────────────────────────────────────────
-    const fetchCurriculumTree = useCallback(async () => {
+    const fetchCurriculumTree = useCallback(async (targetLessonId = null) => {
         try {
             setIsLoadingTree(true);
             const data = await apiClient('/api/v1/curriculum/admin/tree');
             if (data) {
                 // Normalize tree into domains/modules
-                const normalized = data.map((d) => ({
+                const rawTree = Array.isArray(data) ? data : (data?.tree || []);
+                const normalized = rawTree.map((d) => ({
                     domain: d.name,
                     modules: (d.worlds || []).flatMap((w) => (w.series || []).flatMap((s) => s.modules || [])),
                 }));
                 setTree(normalized);
+
+                // If a target lesson was specified (e.g. after draft creation), select it
+                if (targetLessonId) {
+                    for (const d of normalized) {
+                        for (const m of d.modules) {
+                            for (const u of m.units) {
+                                const l = u.lessons.find((les) => les.id === targetLessonId || les.version_id === targetLessonId);
+                                if (l) {
+                                    setSelectedModule(m);
+                                    setSelectedUnit(u);
+                                    setSelectedLesson(l);
+                                    loadLessonDraft(l);
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Auto-select first lesson if none selected
-                if (!selectedLesson && normalized[0]?.modules[0]?.units[0]?.lessons[0]) {
-                    const firstMod = normalized[0].modules[0];
-                    const firstUnit = firstMod.units[0];
-                    const firstLesson = firstUnit.lessons[0];
-                    setSelectedModule(firstMod);
-                    setSelectedUnit(firstUnit);
-                    setSelectedLesson(firstLesson);
-                    loadLessonDraft(firstLesson);
+                if (!selectedLesson) {
+                    for (const d of normalized) {
+                        for (const m of d.modules) {
+                            for (const u of m.units) {
+                                if (u.lessons && u.lessons.length > 0) {
+                                    const firstLesson = u.lessons[0];
+                                    setSelectedModule(m);
+                                    setSelectedUnit(u);
+                                    setSelectedLesson(firstLesson);
+                                    loadLessonDraft(firstLesson);
+                                    return;
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -87,7 +113,7 @@ export const AdminStudioPage = () => {
                     setLessonSlug(data.slug || lesson.slug);
                     setDurationMinutes(data.duration_minutes || 5);
                     setLevel(data.level || 'BEGINNER');
-                    setLearningObjectives(data.learning_objectives || ['Understand core candlestick anatomy']);
+                    setLearningObjectives(data.learning_objectives || []);
                     setCurrentVersionId(data.version_id || lesson.version_id);
                     setVersionNumber(data.version_number || lesson.version_number || 1);
                     setStatus(data.status || lesson.status);
@@ -100,14 +126,26 @@ export const AdminStudioPage = () => {
                         // Provide sensible defaults for empty lessons
                         setBlocks([
                             {
-                                id: 'step_1',
-                                type: 'OBSERVE',
-                                title: 'Observe Candlestick Coordinates',
-                                prompt: 'Inspect the Open, High, Low, and Close points of the candle.',
+                                id: `block_${Date.now()}`,
+                                order_index: 0,
+                                content_type: 'HEADING',
+                                activity_type: 'EXPERIENCE',
                                 response_type: 'NONE',
-                                renderer: 'CANDLESTICK',
+                                title: data.title || lesson.title || 'Lesson Overview',
+                                content: { title: data.title || lesson.title || 'Lesson Overview', level: 1 },
                                 evidence_role: 'NONE',
-                                payload: { open: 100, high: 125, low: 95, close: 120 },
+                                difficulty: 1,
+                            },
+                            {
+                                id: `block_${Date.now() + 1}`,
+                                order_index: 1,
+                                content_type: 'TEXT',
+                                activity_type: 'EXPERIENCE',
+                                response_type: 'NONE',
+                                title: 'Core Principles',
+                                content: { body: 'Explore the foundations, mechanics, and core principles of this financial topic.' },
+                                evidence_role: 'NONE',
+                                difficulty: 1,
                             },
                         ]);
                     }
@@ -122,18 +160,30 @@ export const AdminStudioPage = () => {
             setLessonSlug(lesson.slug);
             setDurationMinutes(5);
             setLevel('BEGINNER');
-            setLearningObjectives(['Identify candlestick structure']);
+            setLearningObjectives([`Understand ${lesson.title || 'key concepts'}`]);
             setStatus(lesson.status || 'DRAFT');
             setBlocks([
                 {
-                    id: 'step_1',
-                    type: 'OBSERVE',
-                    title: 'Examine Candlestick Anatomy',
-                    prompt: 'Look at the high wick versus the real body.',
+                    id: `block_${Date.now()}`,
+                    order_index: 0,
+                    content_type: 'HEADING',
+                    activity_type: 'EXPERIENCE',
                     response_type: 'NONE',
-                    renderer: 'CANDLESTICK',
+                    title: lesson.title || 'Lesson Overview',
+                    content: { title: lesson.title || 'Lesson Overview', level: 1 },
                     evidence_role: 'NONE',
-                    payload: { open: 100, high: 120, low: 90, close: 115 },
+                    difficulty: 1,
+                },
+                {
+                    id: `block_${Date.now() + 1}`,
+                    order_index: 1,
+                    content_type: 'TEXT',
+                    activity_type: 'EXPERIENCE',
+                    response_type: 'NONE',
+                    title: 'Core Principles',
+                    content: { body: 'Explore the foundations, mechanics, and core principles of this financial topic.' },
+                    evidence_role: 'NONE',
+                    difficulty: 1,
                 },
             ]);
             setHasUnsavedChanges(false);
@@ -193,39 +243,89 @@ export const AdminStudioPage = () => {
         }
     };
     // ── 5. Staged Creation Handlers ────────────────────────────────────────────
-    const handleCreateUnit = async (moduleId, unitName) => {
-        await fetchCurriculumTree();
+    const handleCreateModule = async (name, description) => {
+        try {
+            const data = await apiClient('/api/v1/curriculum/modules', {
+                method: 'POST',
+                body: JSON.stringify({ name, description }),
+            });
+            await fetchCurriculumTree();
+            return data;
+        } catch (err) {
+            console.error('Failed to create module:', err);
+            throw err;
+        }
     };
+
+    const handleCreateUnit = async (moduleId, unitName, description) => {
+        try {
+            const data = await apiClient('/api/v1/curriculum/units', {
+                method: 'POST',
+                body: JSON.stringify({
+                    module_id: moduleId,
+                    name: unitName,
+                    description: description || `Unit: ${unitName}`,
+                }),
+            });
+            await fetchCurriculumTree();
+            return data;
+        } catch (err) {
+            console.error('Failed to create unit:', err);
+            throw err;
+        }
+    };
+
     const handleCreateLesson = async (unitId, title) => {
         const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
         try {
-            await apiClient('/api/v1/admin/lessons/draft', {
+            const data = await apiClient('/api/v1/admin/lessons/draft', {
                 method: 'POST',
                 body: JSON.stringify({
+                    unit_id: unitId,
                     slug,
                     title,
-                    domain: 'technical_analysis',
                     level: 'BEGINNER',
                     duration_minutes: 5,
-                    learning_objectives: ['Understand key principles'],
+                    learning_objectives: [`Understand ${title}`],
                     blocks: [
                         {
-                            id: 'step_1',
-                            type: 'OBSERVE',
-                            title: 'Visual Observation',
-                            prompt: 'Observe the market price movements.',
+                            id: `block_${Date.now()}`,
+                            order_index: 0,
+                            content_type: 'HEADING',
+                            activity_type: 'EXPERIENCE',
                             response_type: 'NONE',
-                            renderer: 'CANDLESTICK',
-                            evidence_role: 'NONE',
-                            payload: { open: 100, high: 115, low: 95, close: 110 },
+                            content: { title, level: 1 },
+                            difficulty: 1,
+                        },
+                        {
+                            id: `block_${Date.now() + 1}`,
+                            order_index: 1,
+                            content_type: 'TEXT',
+                            activity_type: 'EXPERIENCE',
+                            response_type: 'NONE',
+                            content: { body: 'Introduce core concepts and key principles here...' },
+                            difficulty: 1,
                         },
                     ],
                 }),
             });
-            await fetchCurriculumTree();
-        }
-        catch (err) {
+            await fetchCurriculumTree(data?.lesson_id);
+            if (data?.version_id) {
+                const newLesson = {
+                    id: data.lesson_id,
+                    slug,
+                    title,
+                    version_id: data.version_id,
+                    version_number: 1,
+                    status: 'DRAFT',
+                };
+                setSelectedLesson(newLesson);
+                loadLessonDraft(newLesson);
+            }
+            return data;
+        } catch (err) {
             console.error('Failed to create lesson draft:', err);
+            throw err;
         }
     };
     // ── 6. Governance Actions (Submit, Review, Publish) ────────────────────────
@@ -325,26 +425,50 @@ export const AdminStudioPage = () => {
         setActiveBlockIndex(Math.max(0, idx - 1));
         setHasUnsavedChanges(true);
     };
-    const handleAddBlock = (type) => {
+    const handleAddBlock = (blockInput) => {
+        const isObj = typeof blockInput === 'object' && blockInput !== null;
+        const cType = isObj ? (blockInput.content_type || 'TEXT') : (blockInput === 'HEADING' ? 'HEADING' : 'TEXT');
+        const rType = isObj ? (blockInput.response_type || 'NONE') : (['PREDICT', 'PRACTICE', 'MISCONCEPTION_CHECK'].includes(blockInput) ? 'SINGLE_CHOICE' : 'NONE');
+        const aType = isObj ? (blockInput.activity_type || 'EXPERIENCE') : (typeof blockInput === 'string' ? blockInput : 'EXPERIENCE');
+        const eRole = isObj ? (blockInput.evidence_role || (rType !== 'NONE' ? 'MASTERY_EVIDENCE' : 'NONE')) : (blockInput === 'PREDICT' ? 'MASTERY_EVIDENCE' : 'NONE');
+
+        const optA = `opt_${Date.now()}_1`;
+        const optB = `opt_${Date.now()}_2`;
+
         const newBlock = {
-            id: `step_${Date.now()}`,
-            type,
-            title: `New ${type.replace('_', ' ')} Step`,
+            id: `block_${Date.now()}`,
+            order_index: blocks.length,
+            content_type: cType,
+            type: cType,
+            activity_type: aType,
+            response_type: rType,
+            evidence_role: eRole,
+            difficulty: 1,
+            title: isObj ? (blockInput.title || `New ${cType}`) : `New ${aType.replace('_', ' ')} Step`,
             prompt: '',
-            response_type: ['PREDICT', 'PRACTICE', 'MISCONCEPTION_CHECK'].includes(type)
-                ? 'SINGLE_CHOICE'
-                : 'NONE',
-            renderer: 'CANDLESTICK',
-            evidence_role: type === 'PREDICT' ? 'MASTERY_EVIDENCE' : 'NONE',
-            payload: { open: 100, high: 120, low: 95, close: 115 },
-            options: ['PREDICT', 'PRACTICE'].includes(type)
-                ? [
-                    { id: 'opt_1', text: 'Option A', is_correct: true },
-                    { id: 'opt_2', text: 'Option B', is_correct: false },
-                ]
-                : undefined,
-            correct_option_id: 'opt_1',
+            content: isObj && blockInput.content ? blockInput.content : (
+                cType === 'HEADING' ? { title: 'New Section Heading', level: 2 } :
+                cType === 'TEXT' ? { body: '' } :
+                cType === 'IMAGE' ? { url: '', caption: '', alt: '' } :
+                cType === 'CALLOUT' ? { tone: 'INFO', title: 'Key Takeaway', body: '' } :
+                cType === 'ANALOGY' ? { source_domain: '', target_domain: '', mapping_text: '' } :
+                cType === 'CANDLESTICK' ? { open: 100, high: 125, low: 95, close: 120, timeframe: '1D' } :
+                cType === 'TABLE' ? { headers: ['Category', 'Value'], rows: [['Metric A', '100']] } :
+                cType === 'SCENARIO' ? { context: '', dilemma: '' } :
+                { body: '' }
+            ),
+            options: rType !== 'NONE' ? [
+                { id: optA, text: 'Option A (Correct)', is_correct: true },
+                { id: optB, text: 'Option B', is_correct: false },
+            ] : undefined,
+            evaluation: rType !== 'NONE' ? {
+                correct_option_id: optA,
+                explanation: 'Explanation for learner feedback and remediation.',
+            } : undefined,
+            correct_option_id: rType !== 'NONE' ? optA : undefined,
+            feedback: { explanation: 'Feedback on learner selection.' },
         };
+
         setBlocks([...blocks, newBlock]);
         setActiveBlockIndex(blocks.length);
         setHasUnsavedChanges(true);
@@ -389,13 +513,13 @@ export const AdminStudioPage = () => {
 
           {/* Breadcrumb Path */}
           <div className="hidden md:flex items-center gap-1.5 text-xs text-slate-400">
-            <span>Content</span>
+            <span>Curriculum</span>
             <span>/</span>
-            <span>{selectedModule?.name || 'Candlestick Foundations'}</span>
+            <span className="font-medium text-slate-700">{selectedModule?.name || 'All Modules'}</span>
             <span>/</span>
-            <span>{selectedUnit?.name || 'Unit 1'}</span>
+            <span className="font-medium text-slate-700">{selectedUnit?.name || 'Unit'}</span>
             <span>/</span>
-            <span className="font-semibold text-slate-800">{lessonTitle || 'Lesson'}</span>
+            <span className="font-semibold text-blue-600">{lessonTitle || 'Select a Lesson'}</span>
           </div>
         </div>
 
@@ -489,7 +613,7 @@ export const AdminStudioPage = () => {
                 setSelectedUnit(unit);
                 setSelectedModule(mod);
                 loadLessonDraft(lesson);
-            }} onCreateUnit={handleCreateUnit} onCreateLesson={handleCreateLesson} onPromptUnsavedChanges={(targetAction) => {
+            }} onCreateModule={handleCreateModule} onCreateUnit={handleCreateUnit} onCreateLesson={handleCreateLesson} onPromptUnsavedChanges={(targetAction) => {
                 setPendingNavigationAction(() => targetAction);
             }}/>
           </div>

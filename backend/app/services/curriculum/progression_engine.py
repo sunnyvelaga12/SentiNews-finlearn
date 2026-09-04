@@ -145,16 +145,12 @@ class ProgressionEngine:
                     is_unlocked = True
                     lock_reason = None
                     prev_lesson_title = version.title
-                elif not has_found_next_available:
+                else:
+                    # Dev & testing phase: unlock all lessons unconditionally without prerequisite gating
                     status = LessonStatus.AVAILABLE
                     is_unlocked = True
                     lock_reason = None
-                    has_found_next_available = True
                     prev_lesson_title = version.title
-                else:
-                    status = LessonStatus.LOCKED
-                    is_unlocked = False
-                    lock_reason = f"Complete '{prev_lesson_title or 'previous lesson'}' first to unlock."
 
                 # Build sanitized SafeActivityCard list (NO answer keys!)
                 safe_cards: List[SafeActivityCard] = []
@@ -243,10 +239,10 @@ class ProgressionEngine:
                     )
                 )
 
-            unit_status = LessonStatus.COMPLETED if all(
-                l.status == LessonStatus.COMPLETED for l in lesson_contracts
-            ) and len(lesson_contracts) > 0 else (
-                LessonStatus.AVAILABLE if any(l.is_unlocked for l in lesson_contracts) else LessonStatus.LOCKED
+            unit_status = (
+                LessonStatus.COMPLETED
+                if all(l.status == LessonStatus.COMPLETED for l in lesson_contracts) and len(lesson_contracts) > 0
+                else LessonStatus.AVAILABLE
             )
 
             unit_contracts.append(
@@ -257,7 +253,7 @@ class ProgressionEngine:
                     description=unit.description or "Unit overview and structural mechanics.",
                     promised_capability="Understand period price movement and anatomy on any timeframe.",
                     estimated_minutes=sum(l.duration_minutes for l in lesson_contracts) or 20,
-                    is_unlocked=unit_status != LessonStatus.LOCKED,
+                    is_unlocked=True,
                     status=unit_status,
                     ordered_lessons=lesson_contracts,
                 )
@@ -284,7 +280,7 @@ class ProgressionEngine:
         )
 
         badge = LearnerCurriculumStateService.compute_badge_state(
-            module.slug, completed_lessons, total_lessons
+            module.slug, completed_lessons, total_lessons, module_name=module.name
         )
 
         return unit_contracts, metrics, badge

@@ -20,22 +20,16 @@ export const ModuleUnitsPage = () => {
             try {
                 const localCompleted = JSON.parse(localStorage.getItem('sentinews_completed_lessons') || '[]');
                 if (data.ordered_units) {
-                    let hasFoundNext = false;
                     data.ordered_units.forEach((u) => {
                         u.ordered_lessons.forEach((l) => {
                             if (l.status === 'COMPLETED' || localCompleted.includes(l.slug)) {
                                 l.status = 'COMPLETED';
-                                l.is_unlocked = true;
-                            }
-                            else if (!hasFoundNext) {
-                                l.status = 'AVAILABLE';
-                                l.is_unlocked = true;
-                                hasFoundNext = true;
                             }
                             else {
-                                l.status = 'LOCKED';
-                                l.is_unlocked = false;
+                                l.status = 'AVAILABLE';
                             }
+                            // Dev & testing phase: all lessons are unlocked
+                            l.is_unlocked = true;
                         });
                     });
                     const allLessons = data.ordered_units.flatMap((u) => u.ordered_lessons);
@@ -63,7 +57,7 @@ export const ModuleUnitsPage = () => {
         loadModule();
     }, [moduleSlug]);
     const handleLaunchLesson = async (lesson) => {
-        if (!lesson.is_unlocked || isStartingLessonId)
+        if (isStartingLessonId)
             return;
         setIsStartingLessonId(lesson.id);
         try {
@@ -224,7 +218,7 @@ export const ModuleUnitsPage = () => {
             {moduleData.ordered_units?.map((unit, uIdx) => {
             const unitNum = String(uIdx + 1).padStart(2, '0');
             const lessons = unit.ordered_lessons || [];
-            const isUnitUnlocked = unit.is_unlocked;
+            const isUnitUnlocked = true;
             const completedInUnit = lessons.filter((l) => l.status === 'COMPLETED').length;
             return (<section key={unit.id} aria-labelledby={`unit-title-${unit.id}`} className="bg-white border border-[#E5E7EB] rounded-2xl p-6 sm:p-8 space-y-6 shadow-sm">
                   {/* Unit Title and Meta */}
@@ -234,9 +228,6 @@ export const ModuleUnitsPage = () => {
                         <span className="font-mono text-xs font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">
                           Unit {unitNum}
                         </span>
-                        {!isUnitUnlocked && (<span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
-                            <Lock className="w-3 h-3 text-slate-400"/> Locked
-                          </span>)}
                       </div>
                       <h3 id={`unit-title-${unit.id}`} className="text-lg sm:text-xl font-bold text-[#17202A]">
                         {unit.title}
@@ -261,14 +252,14 @@ export const ModuleUnitsPage = () => {
                   <div className="space-y-3">
                     {lessons.map((lesson, lIdx) => {
                     const isCompleted = lesson.status === 'COMPLETED';
-                    const isNextAction = lesson.is_unlocked && !isCompleted;
-                    const isLocked = !lesson.is_unlocked || lesson.status === 'LOCKED';
+                    const isNextAction = !isCompleted;
+                    const isLocked = false;
                     const isLaunching = isStartingLessonId === lesson.id;
                     return (<div key={lesson.id} className={`flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-xl border transition-all ${isNextAction
                             ? 'bg-blue-50/40 border-blue-200 hover:border-blue-400 shadow-sm'
                             : isCompleted
                                 ? 'bg-emerald-50/20 border-slate-200 hover:border-slate-300'
-                                : 'bg-slate-50/60 border-slate-200/60 opacity-60'}`}>
+                                : 'bg-white border-slate-200 hover:border-slate-300'}`}>
                           <div className="flex items-start gap-3.5">
                             <span className="font-mono text-xs font-bold text-slate-400 pt-0.5 w-5">
                               {String(lIdx + 1).padStart(2, '0')}
@@ -300,10 +291,7 @@ export const ModuleUnitsPage = () => {
 
                           {/* Action Button */}
                           <div className="shrink-0 self-end sm:self-center">
-                            {isLocked ? (<button type="button" disabled className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200">
-                                <Lock className="w-3 h-3"/>
-                                <span>Locked</span>
-                              </button>) : (<button type="button" disabled={isLaunching} onClick={() => handleLaunchLesson(lesson)} className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer shadow-sm ${isNextAction
+                            <button type="button" disabled={isLaunching} onClick={() => handleLaunchLesson(lesson)} className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer shadow-sm ${isNextAction
                                 ? 'bg-slate-900 hover:bg-slate-800 text-white hover:scale-[1.01] active:scale-[0.99]'
                                 : 'bg-white hover:bg-slate-100 text-slate-800 border border-slate-300'}`}>
                                 {isLaunching ? (<>
@@ -316,7 +304,7 @@ export const ModuleUnitsPage = () => {
                                     <span>Review Lesson</span>
                                     <ArrowRight className="w-3.5 h-3.5"/>
                                   </>)}
-                              </button>)}
+                            </button>
                           </div>
                         </div>);
                 })}

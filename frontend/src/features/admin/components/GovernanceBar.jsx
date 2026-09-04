@@ -81,7 +81,7 @@ export const GovernanceBar = ({ status, versionNumber, userRole = 'CONTENT_EDITO
           </button>
 
           {/* Action 4: Submit for Review (Editor in DRAFT) */}
-          {status === 'DRAFT' && (<button onClick={onSubmitForReview} disabled={!isPublishable} className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white text-xs font-extrabold transition-all shadow-sm">
+          {status === 'DRAFT' && (<button onClick={onSubmitForReview} className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-extrabold transition-all shadow-sm">
               <Send className="w-3.5 h-3.5"/>
               <span>Submit for Review</span>
             </button>)}
@@ -96,10 +96,10 @@ export const GovernanceBar = ({ status, versionNumber, userRole = 'CONTENT_EDITO
               </button>
             </div>)}
 
-          {/* Action 6: Publish Approved Version (High-Stakes Visual Treatment!) */}
-          {status === 'APPROVED' && (<button onClick={onPublish} className="flex items-center gap-2 px-5 py-2 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-black uppercase tracking-wider shadow-lg shadow-emerald-500/20 ring-2 ring-emerald-500/30 transition-all hover:scale-[1.02]">
-              <Sparkles className="w-4 h-4 text-emerald-200"/>
-              <span>Publish Approved Version</span>
+          {/* Action 6: Direct Publish (Unlocked for dev/testing phase) */}
+          {status !== 'PUBLISHED' && (<button onClick={onPublish} className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-black tracking-wide shadow-md transition-all hover:scale-[1.02]">
+              <Sparkles className="w-3.5 h-3.5 text-emerald-200"/>
+              <span>Publish Lesson</span>
             </button>)}
         </div>
       </div>

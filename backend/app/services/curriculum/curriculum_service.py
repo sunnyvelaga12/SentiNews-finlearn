@@ -16,12 +16,8 @@ from app.models.lesson import Lesson, LessonVersion
 class CurriculumContentService:
     @classmethod
     async def get_published_modules(cls, db: AsyncSession) -> List[Module]:
-        """Returns all modules that have at least one unit and published lessons."""
-        stmt = (
-            select(Module)
-            .order_index_asc() if hasattr(Module, "order_index_asc") else
-            select(Module).order_by(Module.order_index.asc())
-        )
+        """Returns all modules ordered by order_index ascending."""
+        stmt = select(Module).order_by(Module.order_index.asc())
         res = await db.execute(stmt)
         return res.scalars().all()
 
@@ -99,23 +95,37 @@ class CurriculumContentService:
 
                     mod_nodes = []
                     for m in modules:
+                        u_stmt = select(Unit).where(Unit.module_id == m.id).order_by(Unit.order_index.asc())
+                        u_res = await db.execute(u_stmt)
+                        units = u_res.scalars().all()
+
                         unit_nodes = []
                         for u in units:
-                            # Fetch unit concepts
-                            uc_stmt = select(UnitConcept).where(UnitConcept.unit_id == u.id).order_by(UnitConcept.order_index.asc())
+                            # Fetch unit concepts (by ID and slug)
+                            uc_stmt = (
+                                select(Concept)
+                                .join(UnitConcept, Concept.id == UnitConcept.concept_id)
+                                .where(UnitConcept.unit_id == u.id)
+                                .order_by(UnitConcept.order_index.asc())
+                            )
                             uc_res = await db.execute(uc_stmt)
-                            u_cids = [str(uc.concept_id) for uc in uc_res.scalars().all()]
-                            
+                            unit_concepts = uc_res.scalars().all()
+                            u_concept_keys = {str(c.id) for c in unit_concepts} | {c.slug for c in unit_concepts}
+
                             # Find all lessons associated with these concepts
                             u_lessons = []
-                            l_stmt = select(Lesson, LessonVersion).join(LessonVersion, Lesson.id == LessonVersion.lesson_id).order_by(LessonVersion.version_number.desc())
+                            l_stmt = (
+                                select(Lesson, LessonVersion)
+                                .join(LessonVersion, Lesson.id == LessonVersion.lesson_id)
+                                .order_by(LessonVersion.version_number.desc())
+                            )
                             l_res = await db.execute(l_stmt)
                             seen_lesson_ids = set()
                             for l, lv in l_res.all():
                                 if l.id in seen_lesson_ids:
                                     continue
-                                lv_cids = [str(c) for c in (lv.concept_ids or [])]
-                                if any(cid in u_cids for cid in lv_cids) or not u_cids:
+                                lv_keys = {str(c) for c in (lv.concept_ids or [])}
+                                if u_concept_keys and (u_concept_keys & lv_keys):
                                     seen_lesson_ids.add(l.id)
                                     u_lessons.append({
                                         "id": str(l.id),

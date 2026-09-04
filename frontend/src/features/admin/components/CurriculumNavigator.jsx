@@ -1,11 +1,14 @@
 import React, { useState } from 'react';
 import { Folder, ChevronRight, ChevronDown, Plus, Search, CheckCircle2, Clock, FileEdit, Layers, BookOpen, } from 'lucide-react';
-export const CurriculumNavigator = ({ tree, selectedLessonId, hasUnsavedChanges = false, onSelectLesson, onCreateUnit, onCreateLesson, onPromptUnsavedChanges, }) => {
+export const CurriculumNavigator = ({ tree, selectedLessonId, hasUnsavedChanges = false, onSelectLesson, onCreateModule, onCreateUnit, onCreateLesson, onPromptUnsavedChanges, }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState('ALL');
     const [expandedModules, setExpandedModules] = useState({});
     const [expandedUnits, setExpandedUnits] = useState({});
     // Modals for staged creation (No orphan content!)
+    const [showAddModuleModal, setShowAddModuleModal] = useState(false);
+    const [newModuleName, setNewModuleName] = useState('');
+    const [newModuleDescription, setNewModuleDescription] = useState('');
     const [showAddUnitModal, setShowAddUnitModal] = useState(false);
     const [showAddLessonModal, setShowAddLessonModal] = useState(false);
     const [selectedModuleForUnit, setSelectedModuleForUnit] = useState('');
@@ -78,13 +81,14 @@ export const CurriculumNavigator = ({ tree, selectedLessonId, hasUnsavedChanges 
             </span>
           </div>
 
-          <div className="flex items-center gap-1">
-            <button onClick={() => {
-            const firstMod = tree[0]?.modules[0]?.id || '';
-            setSelectedModuleForUnit(firstMod);
-            setShowAddUnitModal(true);
-        }} title="Add New Unit" className="p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition-colors">
-              <Plus className="w-4 h-4"/>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setShowAddModuleModal(true)}
+              title="Add New Module"
+              className="flex items-center gap-1 px-2.5 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-bold shadow-sm transition-all"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Module</span>
             </button>
           </div>
         </div>
@@ -117,19 +121,20 @@ export const CurriculumNavigator = ({ tree, selectedLessonId, hasUnsavedChanges 
                 const isModExpanded = expandedModules[mod.id] !== false;
                 return (<div key={mod.id} className="space-y-0.5">
                   {/* Module Item Header */}
-                  <div onClick={() => toggleModule(mod.id)} className="flex items-center justify-between px-2 py-1.5 rounded hover:bg-slate-100 cursor-pointer text-xs font-bold text-slate-800">
+                  <div onClick={() => toggleModule(mod.id)} className="group flex items-center justify-between px-2 py-1.5 rounded hover:bg-slate-100 cursor-pointer text-xs font-bold text-slate-800">
                     <div className="flex items-center gap-1.5 truncate">
                       {isModExpanded ? (<ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0"/>) : (<ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0"/>)}
                       <Folder className="w-3.5 h-3.5 text-blue-500 shrink-0"/>
                       <span className="truncate">{mod.name}</span>
+                      <span className="text-[10px] text-slate-400 font-normal ml-0.5">({mod.units?.length || 0})</span>
                     </div>
 
                     <button onClick={(e) => {
                         e.stopPropagation();
                         setSelectedModuleForUnit(mod.id);
                         setShowAddUnitModal(true);
-                    }} title="Add Unit to Module" className="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-slate-200 rounded text-slate-500">
-                      <Plus className="w-3 h-3"/>
+                    }} title="Add Unit to Module" className="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-slate-200 rounded text-slate-500 transition-opacity">
+                      <Plus className="w-3.5 h-3.5"/>
                     </button>
                   </div>
 
@@ -150,21 +155,22 @@ export const CurriculumNavigator = ({ tree, selectedLessonId, hasUnsavedChanges 
                             });
                             return (<div key={unit.id} className="space-y-0.5">
                             {/* Unit Item Header */}
-                            <div onClick={() => toggleUnit(unit.id)} className="flex items-center justify-between px-2 py-1 rounded hover:bg-slate-100 cursor-pointer text-xs font-medium text-slate-700">
+                            <div onClick={() => toggleUnit(unit.id)} className="group flex items-center justify-between px-2 py-1 rounded hover:bg-slate-100 cursor-pointer text-xs font-medium text-slate-700">
                               <div className="flex items-center gap-1.5 truncate">
                                 {isUnitExpanded ? (<ChevronDown className="w-3 h-3 text-slate-400 shrink-0"/>) : (<ChevronRight className="w-3 h-3 text-slate-400 shrink-0"/>)}
                                 <BookOpen className="w-3 h-3 text-slate-500 shrink-0"/>
                                 <span className="truncate text-[11px] font-semibold text-slate-700">
                                   {unit.name}
                                 </span>
+                                <span className="text-[10px] text-slate-400 font-normal ml-0.5">({unit.lessons?.length || 0})</span>
                               </div>
 
                               <button onClick={(e) => {
                                     e.stopPropagation();
                                     setSelectedUnitForLesson(unit.id);
                                     setShowAddLessonModal(true);
-                                }} title="Add Lesson to Unit" className="p-0.5 hover:bg-slate-200 rounded text-slate-400 hover:text-slate-700">
-                                <Plus className="w-3 h-3"/>
+                                }} title="Add Lesson to Unit" className="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-slate-200 rounded text-slate-400 hover:text-slate-700 transition-opacity">
+                                <Plus className="w-3.5 h-3.5"/>
                               </button>
                             </div>
 
@@ -271,6 +277,40 @@ export const CurriculumNavigator = ({ tree, selectedLessonId, hasUnsavedChanges 
                 }
             }} disabled={!newLessonTitle.trim()} className="px-3 py-1.5 rounded text-xs font-bold bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white">
                 Create Lesson Draft
+              </button>
+            </div>
+          </div>
+        </div>)}
+
+      {/* ── Staged Modal: Add Module (Flexible Curriculum Architecture) ── */}
+      {showAddModuleModal && (<div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl border border-slate-200 max-w-sm w-full p-5 space-y-4">
+            <h3 className="text-sm font-bold text-slate-900">Create New Module</h3>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-semibold text-slate-600">Module Name</label>
+                <input type="text" placeholder="e.g. Market Macro & Liquidity" value={newModuleName} onChange={(e) => setNewModuleName(e.target.value)} className="w-full mt-1 p-2 text-xs border border-slate-200 rounded focus:outline-none focus:border-blue-500 text-slate-800"/>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-600">Description</label>
+                <textarea rows={3} placeholder="e.g. Master interest rates, inflation indicators, and central bank policy cycles." value={newModuleDescription} onChange={(e) => setNewModuleDescription(e.target.value)} className="w-full mt-1 p-2 text-xs border border-slate-200 rounded focus:outline-none focus:border-blue-500 text-slate-800 resize-none"/>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={() => setShowAddModuleModal(false)} className="px-3 py-1.5 rounded text-xs font-semibold text-slate-600 hover:bg-slate-100">
+                Cancel
+              </button>
+              <button onClick={() => {
+                if (newModuleName.trim() && onCreateModule) {
+                    onCreateModule(newModuleName.trim(), newModuleDescription.trim());
+                    setNewModuleName('');
+                    setNewModuleDescription('');
+                    setShowAddModuleModal(false);
+                }
+            }} disabled={!newModuleName.trim()} className="px-3 py-1.5 rounded text-xs font-bold bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white">
+                Create Module
               </button>
             </div>
           </div>

@@ -22,6 +22,7 @@ from .session_policy import SessionAuthorizationPolicy
 RE_SESSIONS_ROOT = re.compile(r"^/api/v1/learning/sessions/?$")
 RE_NEXT_ACTION = re.compile(r"^/api/v1/learning/next-action/?$")
 RE_SESSION_BY_ID = re.compile(r"^/api/v1/learning/sessions/([^/]+)/?$")
+RE_SESSION_PROGRESS = re.compile(r"^/api/v1/learning/sessions/([^/]+)/progress/?$")
 RE_ATTEMPT_SUBMIT = re.compile(
     r"^/api/v1/learning/sessions/([^/]+)/activities/([^/]+)/attempts/?$"
 )
@@ -96,7 +97,17 @@ class AuthorizationPolicyResolver:
             except ValueError:
                 return AuthorizationAction.UNKNOWN, None, self._session_policy, {"error": "malformed_uuid"}
 
-        # 4. Attempt Submit Route
+        # 4. Session Progress Update Route
+        prog_match = RE_SESSION_PROGRESS.match(path)
+        if prog_match and method == "POST":
+            sess_id_str = prog_match.group(1)
+            try:
+                session_uuid = UUID(sess_id_str)
+                return AuthorizationAction.UPDATE_PROGRESS, session_uuid, self._session_policy, {}
+            except ValueError:
+                return AuthorizationAction.UNKNOWN, None, self._session_policy, {"error": "malformed_uuid"}
+
+        # 5. Attempt Submit Route
         attempt_match = RE_ATTEMPT_SUBMIT.match(path)
         if attempt_match and method == "POST":
             sess_id_str = attempt_match.group(1)

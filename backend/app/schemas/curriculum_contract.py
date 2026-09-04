@@ -295,22 +295,45 @@ class StateTransitionRequest(BaseModel):
 
 
 class ModuleCreateRequest(BaseModel):
-    series_id: uuid.UUID
-    slug: str
+    """
+    Request schema for creating a new curriculum module.
+    All pedagogical metadata fields are optional — they can be filled in at creation
+    time or updated later via PATCH. The application layer never infers or hardcodes
+    these values from module slug or name.
+    """
+    series_id: Optional[uuid.UUID] = None
+    slug: Optional[str] = None
     name: str
     description: Optional[str] = None
     order_index: int = 0
+    # DB-backed pedagogical metadata — replaces all hardcoded slug-based branching
+    learner_goal: Optional[str] = None
+    why_this_matters: Optional[str] = None
+    learning_outcomes: Optional[List[str]] = None
+    completion_criteria: Optional[str] = None
+    estimated_hours: Optional[float] = None
+    level: Optional[str] = "BEGINNER"
 
 
 class ModuleUpdateRequest(BaseModel):
+    """
+    Request schema for updating curriculum module metadata.
+    All fields are optional; only supplied fields are written.
+    """
     name: Optional[str] = None
     description: Optional[str] = None
     order_index: Optional[int] = None
+    learner_goal: Optional[str] = None
+    why_this_matters: Optional[str] = None
+    learning_outcomes: Optional[List[str]] = None
+    completion_criteria: Optional[str] = None
+    estimated_hours: Optional[float] = None
+    level: Optional[str] = None
 
 
 class UnitCreateRequest(BaseModel):
     module_id: uuid.UUID
-    slug: str
+    slug: Optional[str] = None
     name: str
     description: Optional[str] = None
     order_index: int = 0

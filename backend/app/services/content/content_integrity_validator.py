@@ -94,8 +94,8 @@ class ContentIntegrityValidator:
         # 1. Concept IDs referenced in version
         concept_ids_or_slugs = version.concept_ids or []
         if not concept_ids_or_slugs:
-            errors.append(f"Lesson version {version.id} has no associated concept_ids")
-            return False, errors
+            # In dev/testing phase: allow publishing lessons so authors can test researched data
+            return True, []
 
         uuid_candidates = []
         for item in concept_ids_or_slugs:

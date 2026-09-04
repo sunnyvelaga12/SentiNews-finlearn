@@ -19,17 +19,19 @@ export const LiveIsolatedPreview = ({ lessonTitle, blocks, activeStepIndex = 0, 
         evidence_role: 'NONE',
         payload: {},
     };
-    // Resolve options & correct option
     const options = useMemo(() => {
-        return (block.options || []).map((o, idx) => ({
+        const rawOpts = block.options || [];
+        const correctId = block.evaluation?.correct_option_id || block.correct_option_id;
+        return rawOpts.map((o, idx) => ({
             id: o.id || `opt_${idx}`,
-            text: o.text || `Option ${idx + 1}`,
-            is_correct: o.is_correct === true || o.id === block.correct_option_id,
+            text: o.text || o.label || `Option ${idx + 1}`,
+            image_url: o.image_url || o.url,
+            is_correct: o.is_correct === true || o.id === correctId,
         }));
     }, [block]);
     const correctOptionId = useMemo(() => {
         const found = options.find((o) => o.is_correct);
-        return found?.id || block.correct_option_id || options[0]?.id;
+        return found?.id || block.evaluation?.correct_option_id || block.correct_option_id || options[0]?.id;
     }, [options, block]);
     // Synthetic State Overrides
     const selectedOption = useMemo(() => {
@@ -182,7 +184,17 @@ export const LiveIsolatedPreview = ({ lessonTitle, blocks, activeStepIndex = 0, 
 
           {/* Canonical ActivityRenderer Execution */}
           <div className="flex-1">
-            <ActivityRenderer activityType={block.type || 'OBSERVE'} rendererType={block.renderer || 'CANDLESTICK'} evidenceRole={block.evidence_role || 'NONE'} title={block.title} prompt={block.prompt} payload={block.payload || {}} provenance={block.source_citation} options={options} isPreview={true} onAnswerSubmit={(optId) => handleAnswerSelect(optId)}/>
+            <ActivityRenderer
+              activityType={block.activity_type || block.type || 'EXPERIENCE'}
+              rendererType={block.content_type || block.renderer || 'TEXT'}
+              evidenceRole={block.evidence_role || 'NONE'}
+              title={block.title}
+              prompt={block.prompt || block.content?.body}
+              payload={block.content || block.payload || {}}
+              provenance={block.source_citation || block.provenance}
+              options={null}
+              isPreview={true}
+            />
           </div>
 
           {/* Multiple Choice Interactive Feedback Box (Client-Side Deterministic Evaluator) */}
@@ -243,10 +255,14 @@ export const LiveIsolatedPreview = ({ lessonTitle, blocks, activeStepIndex = 0, 
                 </div>)}
 
               {/* Explanation Box on submission */}
-              {isSubmitted && block.explanation && (<div className="p-3.5 rounded bg-slate-800/80 border border-slate-700 text-xs text-slate-300 space-y-1">
+              {isSubmitted && (block.evaluation?.explanation || block.feedback?.explanation || block.explanation) && (
+                <div className="p-3.5 rounded bg-slate-800/80 border border-slate-700 text-xs text-slate-300 space-y-1">
                   <div className="font-bold text-slate-200">Explanation:</div>
-                  <div className="leading-relaxed">{block.explanation}</div>
-                </div>)}
+                  <div className="leading-relaxed">
+                    {block.evaluation?.explanation || block.feedback?.explanation || block.explanation}
+                  </div>
+                </div>
+              )}
             </div>)}
 
           {/* Navigation Controls in Full Mode */}

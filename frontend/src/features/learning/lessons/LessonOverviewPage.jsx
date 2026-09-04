@@ -122,7 +122,7 @@ export const LessonOverviewPage = () => {
               {lesson.title}
             </h1>
             <p className="text-sm sm:text-base text-slate-600 leading-relaxed">
-              A candlestick is a compact summary of how price moved during a single period.
+              {lesson.description || lesson.why_this_matters || 'Explore key concepts and verifiable principles through structured interactive learning.'}
             </p>
           </div>
 
@@ -134,7 +134,7 @@ export const LessonOverviewPage = () => {
                 <Sparkles className="w-3.5 h-3.5"/> WHY THIS MATTERS
               </div>
               <p className="text-xs text-slate-600 leading-relaxed">
-                A market produces lots of price changes. A candlestick gives you a simple way to summarize what happened during one period.
+                {lesson.why_this_matters || 'Understanding this financial concept enables sound reasoning and independent decision-making.'}
               </p>
             </div>
 
@@ -144,7 +144,9 @@ export const LessonOverviewPage = () => {
                 <BookOpen className="w-3.5 h-3.5"/> WHAT YOU'LL LEARN
               </div>
               <p className="text-xs text-slate-600 leading-relaxed">
-                You'll understand: <strong className="text-slate-900">Open</strong> · <strong className="text-slate-900">High</strong> · <strong className="text-slate-900">Low</strong> · <strong className="text-slate-900">Close</strong>, plus real body and shadows.
+                {Array.isArray(lesson.learning_objectives) && lesson.learning_objectives.length > 0
+                  ? lesson.learning_objectives.join(' · ')
+                  : "You'll understand core concepts, mechanics, and real-world implications."}
               </p>
             </div>
 
@@ -154,7 +156,7 @@ export const LessonOverviewPage = () => {
                 <Sliders className="w-3.5 h-3.5"/> WHAT YOU'LL DO
               </div>
               <p className="text-xs text-slate-600 leading-relaxed">
-                You'll directly manipulate a live candle slider to see how changing Close transforms candle color and body.
+                {lesson.what_you_will_do || 'You will interactively examine financial scenarios, predict outcomes, and calibrate your analytical intuition.'}
               </p>
             </div>
 
@@ -164,7 +166,7 @@ export const LessonOverviewPage = () => {
                 <Target className="w-3.5 h-3.5"/> WHAT YOU'LL PROVE
               </div>
               <p className="text-xs text-slate-600 leading-relaxed">
-                After this lesson, you will be able to: Identify the 4 price points (OHLC) and explain where price closed relative to where it opened on an unfamiliar candle.
+                {lesson.what_you_will_prove || 'You will demonstrate mastery through verified evidence and application to unfamiliar market contexts.'}
               </p>
             </div>
           </div>
@@ -177,8 +179,8 @@ export const LessonOverviewPage = () => {
             <div className="flex flex-wrap items-center gap-2 text-xs text-slate-700 font-medium">
               <span className="px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200">👁 Visual Observe</span>
               <span className="px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200">🧠 Prediction</span>
-              <span className="px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200">🎯 Practice Sliders</span>
-              <span className="px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200">📊 Market Example</span>
+              <span className="px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200">🎯 Practice Activity</span>
+              <span className="px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200">📊 Market Evidence</span>
               <span className="px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200">⚡ Misconception Check</span>
               <span className="px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200">🚀 Transfer Scenario</span>
             </div>
@@ -186,7 +188,7 @@ export const LessonOverviewPage = () => {
 
           {/* Primary Action Button */}
           <div className="pt-2">
-            <button type="button" disabled={!lesson.is_unlocked || isStarting} onClick={handleStartSession} className="w-full flex items-center justify-center gap-2 py-4 px-6 rounded-xl font-bold text-sm bg-slate-900 hover:bg-slate-800 text-white shadow-sm hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed transition-all cursor-pointer">
+            <button type="button" disabled={isStarting} onClick={handleStartSession} className="w-full flex items-center justify-center gap-2 py-4 px-6 rounded-xl font-bold text-sm bg-slate-900 hover:bg-slate-800 text-white shadow-sm hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed transition-all cursor-pointer">
               {isStarting ? (<>
                   <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/>
                   <span>PREPARING LEARNING CANVAS...</span>

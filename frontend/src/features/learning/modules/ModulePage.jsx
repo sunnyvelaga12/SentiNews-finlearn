@@ -17,22 +17,19 @@ export const ModulePage = () => {
             .then((data) => {
             try {
                 const localCompleted = JSON.parse(localStorage.getItem('sentinews_completed_lessons') || '[]');
-                if (data.ordered_units && localCompleted.length > 0) {
-                    let hasFoundNext = false;
+                if (data.ordered_units) {
                     data.ordered_units.forEach((u) => {
-                        u.ordered_lessons.forEach((l) => {
+                        u.is_unlocked = true;
+                        (u.ordered_lessons || []).forEach((l) => {
+                            l.is_unlocked = true;
                             if (l.status === 'COMPLETED' || localCompleted.includes(l.slug)) {
                                 l.status = 'COMPLETED';
-                                l.is_unlocked = true;
-                            }
-                            else if (!hasFoundNext) {
+                            } else {
                                 l.status = 'AVAILABLE';
-                                l.is_unlocked = true;
-                                hasFoundNext = true;
                             }
                         });
                     });
-                    const allLessons = data.ordered_units.flatMap((u) => u.ordered_lessons);
+                    const allLessons = data.ordered_units.flatMap((u) => u.ordered_lessons || []);
                     const completedCount = allLessons.filter((l) => l.status === 'COMPLETED').length;
                     if (data.progress) {
                         data.progress.completed_lessons = completedCount;
@@ -107,7 +104,7 @@ export const ModulePage = () => {
         id: `badge-${moduleData.slug}`,
         title: `${moduleData.title} Credential`,
         description: 'Capability credential for price action reading on unfamiliar charts.',
-        status: 'LOCKED',
+        status: 'AVAILABLE',
         credential_claim: 'Demonstrated verified application and active recall across all unit milestones.',
     };
     const totalUnits = moduleData.ordered_units?.length || 0;

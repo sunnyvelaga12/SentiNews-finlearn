@@ -79,15 +79,18 @@ export const ActivityRenderer = ({ activityType = 'OBSERVE', rendererType = 'CAN
                 : 'Test your understanding:'}
           </div>
 
-          <div className="grid grid-cols-1 gap-2.5">
+          <div className={options.some(o => o.image_url) ? "grid grid-cols-1 sm:grid-cols-2 gap-3" : "grid grid-cols-1 gap-2.5"}>
             {options.map((opt) => {
                 const isSelected = selectedOption === opt.id;
-                return (<button key={opt.id} type="button" onClick={() => handleSelectOption(opt.id)} className={`p-3.5 rounded-xl border text-left text-sm font-medium transition-all flex items-center justify-between ${isSelected
+                return (<button key={opt.id} type="button" onClick={() => handleSelectOption(opt.id)} className={`p-3.5 rounded-xl border text-left text-sm font-medium transition-all flex flex-col gap-2 ${isSelected
                         ? 'bg-sky-500/20 border-sky-400 text-white ring-1 ring-sky-400 shadow-md'
                         : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800/80 hover:border-slate-700'}`}>
-                  <span>{opt.text}</span>
-                  <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${isSelected ? 'border-sky-400 bg-sky-500' : 'border-slate-600'}`}>
-                    {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-white"/>}
+                  {opt.image_url && (<img src={opt.image_url} alt={opt.text || opt.label || 'Choice visual'} className="w-full h-28 object-contain rounded-lg bg-slate-950/60 p-1"/>)}
+                  <div className="flex items-center justify-between w-full">
+                    <span>{opt.text || opt.label}</span>
+                    <div className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${isSelected ? 'border-sky-400 bg-sky-500' : 'border-slate-600'}`}>
+                      {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-white"/>}
+                    </div>
                   </div>
                 </button>);
             })}
