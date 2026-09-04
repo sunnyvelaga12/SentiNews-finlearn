@@ -85,8 +85,8 @@ class LearnerCurriculumStateService:
         """
         Server-Authoritative Lesson Completion Writer:
         1. Upserts user_progress record with completed=True and current timestamp.
-        2. Updates concept_mastery projections for associated concepts.
-        3. Commits transaction.
+        2. Single-writer invariant: ConceptMastery is NEVER written or mutated here.
+           Mastery is strictly computed from evaluated learning attempts by the frozen core.
         """
         now = datetime.now(timezone.utc)
 

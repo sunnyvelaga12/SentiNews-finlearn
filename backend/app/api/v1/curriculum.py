@@ -516,6 +516,12 @@ async def reset_progress(
     request: Request,
     db: AsyncSession = Depends(get_db)
 ):
+    from app.core.config import settings
+    if settings.ENVIRONMENT == "production":
+        raise HTTPException(
+            status_code=403,
+            detail="FORBIDDEN: Progress reset endpoint is strictly disabled in production environments."
+        )
     user_id = get_optional_user_id(request)
     from sqlalchemy import delete
     from app.models.progress import UserProgress, ConceptMastery
