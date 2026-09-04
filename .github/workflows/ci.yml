@@ -1,0 +1,66 @@
+name: SentiNews Learn CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test-backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: sentinews
+          POSTGRES_PASSWORD: sentinews_password
+          POSTGRES_DB: sentinews_learn_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Dependencies
+        run: |
+          cd backend
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Run Pytest & DB Migrations Test
+        env:
+          DATABASE_URL: postgresql+asyncpg://sentinews:sentinews_password@localhost:5432/sentinews_learn_test
+          JWT_SECRET: ci_secret_key_testing_only_12345678901234567890
+          ALLOWED_ORIGINS: http://localhost:3000,http://localhost:5173
+        run: |
+          cd backend
+          alembic upgrade head
+          pytest
+
+  test-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install Frontend Dependencies
+        run: |
+          cd frontend
+          npm ci
+      - name: Typecheck & Build Prerender
+        run: |
+          cd frontend
+          npm run build
+      - name: Run Vitest Unit Tests
+        run: |
+          cd frontend
+          npm run test

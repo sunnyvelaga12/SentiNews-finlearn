@@ -1,0 +1,20 @@
+{
+  "name": "sentinews-learn",
+  "version": "1.0.0",
+  "private": true,
+  "description": "SentiNews Learn — Data-driven, React-first financial learning platform",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:frontend": "npm run --prefix frontend dev",
+    "dev:backend": "cd backend && uvicorn app.main:app --reload --port 8000",
+    "build": "npm run --prefix frontend build",
+    "test": "npm run test:frontend && npm run test:backend",
+    "test:frontend": "npm run --prefix frontend test",
+    "test:backend": "cd backend && pytest",
+    "lint": "npm run --prefix frontend lint",
+    "generate-types": "npx openapi-typescript http://localhost:8000/api/v1/openapi.json -o frontend/src/api/generated/schema.ts"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

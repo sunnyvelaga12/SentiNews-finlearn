@@ -1,0 +1,112 @@
+import React, { useState } from 'react';
+import { getRenderer } from './renderers/RendererRegistry';
+import { Eye, HelpCircle, Lightbulb, Sliders, BarChart2, AlertTriangle, ArrowRight, CheckCircle2, RefreshCw, Target, } from 'lucide-react';
+export const ActivityRenderer = ({ activityType = 'OBSERVE', rendererType = 'CANDLESTICK', evidenceRole, title, prompt, payload, provenance, options, onAnswerSubmit, onInteraction, isPreview = false, className = '', }) => {
+    const effectiveInteraction = (activityType || payload?.activity_type || 'OBSERVE').toUpperCase();
+    const effectiveRenderer = (rendererType || payload?.renderer || payload?.visual_type || 'CANDLESTICK').toUpperCase();
+    const effectiveEvidenceRole = (evidenceRole || payload?.evidence_role || 'NONE').toUpperCase();
+    const [selectedOption, setSelectedOption] = useState(null);
+    const [submitted, setSubmitted] = useState(false);
+    const handleSelectOption = (optId) => {
+        if (submitted && !isPreview)
+            return;
+        setSelectedOption(optId);
+    };
+    const handleSubmit = () => {
+        if (!selectedOption)
+            return;
+        setSubmitted(true);
+        // In preview mode: strictly local state, zero network/analytics dispatches
+        if (!isPreview && onAnswerSubmit) {
+            onAnswerSubmit(selectedOption);
+        }
+    };
+    const handleReset = () => {
+        setSelectedOption(null);
+        setSubmitted(false);
+    };
+    // Resolve visual component from the pluggable RendererRegistry
+    const VisualComponent = getRenderer(effectiveRenderer);
+    return (<div className={`space-y-6 ${className}`}>
+      {/* Interaction Stage & Evidence Role Header */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
+        <div className="flex items-center gap-2">
+          {effectiveInteraction === 'OBSERVE' && <Eye className="w-5 h-5 text-sky-400"/>}
+          {effectiveInteraction === 'PREDICT' && <HelpCircle className="w-5 h-5 text-amber-400"/>}
+          {effectiveInteraction === 'EXPLAIN' && <Lightbulb className="w-5 h-5 text-emerald-400"/>}
+          {effectiveInteraction === 'PRACTICE' && <Sliders className="w-5 h-5 text-indigo-400"/>}
+          {effectiveInteraction === 'MARKET_EXAMPLE' && <BarChart2 className="w-5 h-5 text-purple-400"/>}
+          {effectiveInteraction === 'MISCONCEPTION_CHECK' && <AlertTriangle className="w-5 h-5 text-rose-400"/>}
+          {(effectiveInteraction === 'APPLICATION' || effectiveInteraction === 'TRANSFER') && (<ArrowRight className="w-5 h-5 text-teal-400"/>)}
+
+          <span className="text-xs font-bold uppercase tracking-wider text-slate-300">
+            {effectiveInteraction.replace('_', ' ')}
+          </span>
+
+          {/* Evidence Role Tag */}
+          {effectiveEvidenceRole === 'MASTERY_EVIDENCE' && (<span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+              <Target className="w-3 h-3 text-emerald-400"/>
+              Mastery Evidence
+            </span>)}
+          {effectiveEvidenceRole === 'FORMATIVE' && (<span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold uppercase bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+              <Sliders className="w-3 h-3 text-indigo-400"/>
+              Formative Practice
+            </span>)}
+        </div>
+
+        {/* Provenance Badge */}
+        {provenance && (<div className="flex items-center gap-2">
+            {provenance.is_simulated ? (<span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                ⚡ SIMULATED MARKET DATA
+              </span>) : (<span className="px-2 py-0.5 rounded text-[10px] font-semibold text-slate-400 border border-slate-700">
+                HISTORICAL: {provenance.instrument || 'NIFTY 50'} · {provenance.timeframe || '1D'}
+              </span>)}
+          </div>)}
+      </div>
+
+      {/* Main Title & Prompt */}
+      {title && <h3 className="text-xl font-black text-white">{title}</h3>}
+      {prompt && <p className="text-sm sm:text-base text-slate-300 leading-relaxed">{prompt}</p>}
+
+      {/* Visual Component Rendered through Registry */}
+      <VisualComponent payload={payload} effectiveInteraction={effectiveInteraction} isPreview={isPreview} onInteraction={onInteraction}/>
+
+      {/* Formative / Evaluation Multiple Choice Questions */}
+      {options && options.length > 0 && (<div className="space-y-3 pt-2">
+          <div className="text-xs font-bold uppercase tracking-wider text-slate-400">
+            {effectiveEvidenceRole === 'MASTERY_EVIDENCE'
+                ? 'Select the most accurate conclusion:'
+                : 'Test your understanding:'}
+          </div>
+
+          <div className="grid grid-cols-1 gap-2.5">
+            {options.map((opt) => {
+                const isSelected = selectedOption === opt.id;
+                return (<button key={opt.id} type="button" onClick={() => handleSelectOption(opt.id)} className={`p-3.5 rounded-xl border text-left text-sm font-medium transition-all flex items-center justify-between ${isSelected
+                        ? 'bg-sky-500/20 border-sky-400 text-white ring-1 ring-sky-400 shadow-md'
+                        : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800/80 hover:border-slate-700'}`}>
+                  <span>{opt.text}</span>
+                  <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${isSelected ? 'border-sky-400 bg-sky-500' : 'border-slate-600'}`}>
+                    {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-white"/>}
+                  </div>
+                </button>);
+            })}
+          </div>
+
+          <div className="pt-3 flex items-center gap-3">
+            {!submitted ? (<button type="button" disabled={!selectedOption} onClick={handleSubmit} className="px-6 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-400 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-sm shadow-lg shadow-sky-500/20 transition-all cursor-pointer">
+                Submit Answer
+              </button>) : (<div className="flex items-center gap-3">
+                <div className="flex items-center gap-1.5 text-emerald-400 text-xs font-bold bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-lg">
+                  <CheckCircle2 className="w-4 h-4"/>
+                  Answer Recorded
+                </div>
+                {isPreview && (<button type="button" onClick={handleReset} className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 text-xs flex items-center gap-1">
+                    <RefreshCw className="w-3.5 h-3.5"/>
+                    Reset
+                  </button>)}
+              </div>)}
+          </div>
+        </div>)}
+    </div>);
+};
