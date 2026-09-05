@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { CandlestickVisualizer, formatCurrency } from '../../../../components/charts/CandlestickVisualizer';
+import { getCachedMediaUrl } from '../../../admin/utils/mediaResolver';
 import {
   Calculator,
   FileSpreadsheet,
@@ -48,7 +49,8 @@ export const HeadingRenderer = ({ payload }) => {
  * 2. Image Renderer
  */
 export const ImageRenderer = ({ payload }) => {
-  const imageUrl = payload?.url || payload?.image_url || payload?.src;
+  const resolvedFromId = payload?.media_asset_id ? getCachedMediaUrl(payload.media_asset_id) : null;
+  const imageUrl = resolvedFromId || payload?.url || payload?.image_url || payload?.src;
   const caption = payload?.caption;
   const alt = payload?.alt || caption || 'Educational financial illustration';
 

@@ -1,3 +1,5 @@
+import { validateBlock } from './blockRegistry';
+
 /**
  * SentiNews Pedagogical Quality Engine & Semantic Rule Validator (V0.5.2)
  *
@@ -36,6 +38,22 @@ export function evaluatePedagogicalQuality(lesson, blocks) {
             reason: 'Clear objectives focus learner attention and define the boundary of what is assessed.'
         });
     }
+
+    // Check for development fallback objectives (User Correction #3)
+    const hasFallbackObjectives = (lesson.learning_objectives || []).some(
+        (obj) => typeof obj === 'string' && (obj.toLowerCase().includes('fallback') || obj.toLowerCase().includes('temporary') || obj.includes('⚠'))
+    );
+    if (hasFallbackObjectives) {
+        blockers.push({
+            id: 'err-fallback-objective-production-blocker',
+            severity: 'BLOCKER',
+            ruleId: 'NO_FALLBACK_OBJECTIVE_IN_PUBLISH',
+            scope: 'UNIVERSAL',
+            title: 'Development Fallback Objective Detected',
+            message: 'A temporary development fallback objective is present. It must be replaced with an authoritative pedagogical objective before publication.',
+            reason: 'A development-generated fallback objective must never be silently promoted as a production-quality objective; it is a blocking validation error.'
+        });
+    }
     if (!blocks || blocks.length === 0) {
         blockers.push({
             id: 'err-no-blocks',
@@ -70,10 +88,27 @@ export function evaluatePedagogicalQuality(lesson, blocks) {
             masteryCount++;
         if (type === 'MISCONCEPTION_CHECK')
             hasMisconceptionCheck = true;
-        if (type === 'TRANSFER')
-            hasTransfer = true;
+        // Canonical Block Schema Validation from blockRegistry
+        const cType = (b.content_type || b.type || 'TEXT').toUpperCase();
+        const registryErrors = validateBlock(b);
+        if (Array.isArray(registryErrors) && registryErrors.length > 0) {
+            registryErrors.forEach((errMsg, errI) => {
+                blockers.push({
+                    id: `err-b-${idx}-reg-${errI}`,
+                    severity: 'BLOCKER',
+                    ruleId: 'BLOCK_SCHEMA_VALIDATION_ERROR',
+                    scope: 'ACTIVITY',
+                    blockIndex: idx,
+                    blockId: b.id,
+                    title: `Step ${stepNum} (${cType}) Schema Incomplete`,
+                    message: errMsg,
+                    reason: 'All learning blocks must satisfy their canonical schema requirements before publication.'
+                });
+            });
+        }
+
         // Check Prompt / Title
-        if (!b.prompt && !b.title) {
+        if (!b.prompt && !b.title && !b.content?.text && !b.content?.title) {
             blockers.push({
                 id: `err-b-${idx}-prompt`,
                 severity: 'BLOCKER',

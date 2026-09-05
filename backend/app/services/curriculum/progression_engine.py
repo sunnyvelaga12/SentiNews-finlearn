@@ -28,6 +28,7 @@ from app.schemas.curriculum_contract import (
     DataProvenance,
 )
 from app.services.curriculum.learner_curriculum_state_service import LearnerCurriculumStateService
+from app.core.config import settings
 
 
 class ProgressionPolicy(str, Enum):
@@ -146,10 +147,22 @@ class ProgressionEngine:
                     lock_reason = None
                     prev_lesson_title = version.title
                 else:
-                    # Dev & testing phase: unlock all lessons unconditionally without prerequisite gating
-                    status = LessonStatus.AVAILABLE
-                    is_unlocked = True
-                    lock_reason = None
+                    if settings.ENVIRONMENT in ("development", "test", "testing"):
+                        # Dev & testing phase: unlock all lessons unconditionally without prerequisite gating
+                        status = LessonStatus.AVAILABLE
+                        is_unlocked = True
+                        lock_reason = None
+                    else:
+                        # Production: sequential & prerequisite gating
+                        if not has_found_next_available:
+                            status = LessonStatus.AVAILABLE
+                            is_unlocked = True
+                            lock_reason = None
+                            has_found_next_available = True
+                        else:
+                            status = LessonStatus.LOCKED
+                            is_unlocked = False
+                            lock_reason = f"Complete {prev_lesson_title or 'previous lesson'} to unlock"
                     prev_lesson_title = version.title
 
                 # Build sanitized SafeActivityCard list (NO answer keys!)

@@ -277,6 +277,129 @@ async def update_unit(
     return {"status": "SUCCESS", "unit": {"id": str(u.id), "slug": u.slug, "name": u.name}}
 
 
+@router.delete("/curriculum/modules/{module_id}", summary="Delete a curriculum module")
+async def delete_module(
+    module_id: uuid.UUID,
+    request: Request,
+    force: bool = False,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Deletes a module and all its child units (cascade).
+    Rejects if any associated lesson has a PUBLISHED version, unless force=true (SUPER_ADMIN only).
+    """
+    require_content_editor(request)
+    from sqlalchemy import delete as sql_delete
+
+    stmt = select(Module).where(Module.id == module_id)
+    res = await db.execute(stmt)
+    mod = res.scalar_one_or_none()
+    if not mod:
+        raise HTTPException(status_code=404, detail="MODULE_NOT_FOUND")
+
+    # Gather all units in this module
+    u_stmt = select(Unit).where(Unit.module_id == module_id)
+    u_res = await db.execute(u_stmt)
+    units = u_res.scalars().all()
+    unit_ids = [u.id for u in units]
+
+    # Check for published lessons inside any unit
+    if unit_ids:
+        pub_stmt = (
+            select(LessonVersion)
+            .join(Lesson, LessonVersion.lesson_id == Lesson.id)
+            .where(
+                Lesson.unit_id.in_(unit_ids),
+                LessonVersion.status == "PUBLISHED",
+            )
+        )
+        pub_res = await db.execute(pub_stmt)
+        published_versions = pub_res.scalars().all()
+        if published_versions and not force:
+            raise HTTPException(
+                status_code=409,
+                detail=f"MODULE_HAS_PUBLISHED_LESSONS: {len(published_versions)} published lesson version(s) found. "
+                       "Pass ?force=true as SUPER_ADMIN to override.",
+            )
+
+        # Delete all lesson versions and lessons in these units
+        for uid in unit_ids:
+            lessons_stmt = select(Lesson).where(Lesson.unit_id == uid)
+            lessons_res = await db.execute(lessons_stmt)
+            lessons = lessons_res.scalars().all()
+            for lesson in lessons:
+                await db.execute(sql_delete(LessonVersion).where(LessonVersion.lesson_id == lesson.id))
+            await db.execute(sql_delete(Lesson).where(Lesson.unit_id == uid))
+
+        # Delete all units
+        await db.execute(sql_delete(Unit).where(Unit.module_id == module_id))
+
+    # Delete the module itself
+    await db.execute(sql_delete(Module).where(Module.id == module_id))
+    await db.commit()
+
+    return {
+        "status": "SUCCESS",
+        "message": f"Module '{mod.name}' and {len(units)} unit(s) deleted.",
+        "module_id": str(module_id),
+        "deleted_units": len(units),
+    }
+
+
+@router.delete("/curriculum/units/{unit_id}", summary="Delete a curriculum unit")
+async def delete_unit(
+    unit_id: uuid.UUID,
+    request: Request,
+    force: bool = False,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Deletes a unit and all its child lessons (cascade).
+    Rejects if any lesson has a PUBLISHED version, unless force=true.
+    """
+    require_content_editor(request)
+    from sqlalchemy import delete as sql_delete
+
+    stmt = select(Unit).where(Unit.id == unit_id)
+    res = await db.execute(stmt)
+    unit = res.scalar_one_or_none()
+    if not unit:
+        raise HTTPException(status_code=404, detail="UNIT_NOT_FOUND")
+
+    # Check for published lessons
+    pub_stmt = (
+        select(LessonVersion)
+        .join(Lesson, LessonVersion.lesson_id == Lesson.id)
+        .where(Lesson.unit_id == unit_id, LessonVersion.status == "PUBLISHED")
+    )
+    pub_res = await db.execute(pub_stmt)
+    published = pub_res.scalars().all()
+    if published and not force:
+        raise HTTPException(
+            status_code=409,
+            detail=f"UNIT_HAS_PUBLISHED_LESSONS: {len(published)} published lesson version(s). "
+                   "Pass ?force=true to override.",
+        )
+
+    # Delete all lessons and their versions
+    lessons_stmt = select(Lesson).where(Lesson.unit_id == unit_id)
+    lessons_res = await db.execute(lessons_stmt)
+    lessons = lessons_res.scalars().all()
+    for lesson in lessons:
+        await db.execute(sql_delete(LessonVersion).where(LessonVersion.lesson_id == lesson.id))
+    await db.execute(sql_delete(Lesson).where(Lesson.unit_id == unit_id))
+
+    await db.execute(sql_delete(Unit).where(Unit.id == unit_id))
+    await db.commit()
+
+    return {
+        "status": "SUCCESS",
+        "message": f"Unit '{unit.name}' and {len(lessons)} lesson(s) deleted.",
+        "unit_id": str(unit_id),
+        "deleted_lessons": len(lessons),
+    }
+
+
 # ── Learner Experience & Catalog Endpoints ────────────────────────────────────
 @router.get("/curriculum/modules", summary="Get catalog of published modules with learner progress")
 async def list_modules(

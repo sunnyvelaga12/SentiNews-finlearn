@@ -1,6 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { ActivityRenderer } from '../../learning/components/ActivityRenderer';
 import { Monitor, Tablet, Smartphone, RotateCcw, ArrowLeft, ArrowRight, ShieldCheck, CheckCircle2, XCircle, AlertCircle, HelpCircle, } from 'lucide-react';
+import { getCachedMediaUrl } from '../utils/mediaResolver';
+
 export const LiveIsolatedPreview = ({ lessonTitle, blocks, activeStepIndex = 0, onClosePreview, }) => {
     // Navigation & Scope
     const [previewMode, setPreviewMode] = useState('STEP');
@@ -25,7 +27,8 @@ export const LiveIsolatedPreview = ({ lessonTitle, blocks, activeStepIndex = 0, 
         return rawOpts.map((o, idx) => ({
             id: o.id || `opt_${idx}`,
             text: o.text || o.label || `Option ${idx + 1}`,
-            image_url: o.image_url || o.url,
+            media_asset_id: o.media_asset_id,
+            image_url: o.media_asset_id ? getCachedMediaUrl(o.media_asset_id) : (o.image_url || o.url),
             is_correct: o.is_correct === true || o.id === correctId,
         }));
     }, [block]);
@@ -189,8 +192,15 @@ export const LiveIsolatedPreview = ({ lessonTitle, blocks, activeStepIndex = 0, 
               rendererType={block.content_type || block.renderer || 'TEXT'}
               evidenceRole={block.evidence_role || 'NONE'}
               title={block.title}
-              prompt={block.prompt || block.content?.body}
-              payload={block.content || block.payload || {}}
+              prompt={block.prompt || block.content?.body || block.content?.text}
+              payload={{
+                ...(block.content || {}),
+                ...(block.payload || {}),
+                media_asset_id: block.media_asset_id,
+                url: block.media_asset_id
+                  ? getCachedMediaUrl(block.media_asset_id)
+                  : (block.content?.url || block.content?.image_url),
+              }}
               provenance={block.source_citation || block.provenance}
               options={null}
               isPreview={true}

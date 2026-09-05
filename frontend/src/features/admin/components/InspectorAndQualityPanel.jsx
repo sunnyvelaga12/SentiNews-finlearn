@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { Sliders, ShieldCheck, Building2, AlertOctagon, AlertTriangle, CheckCircle2, Target, Plus, Trash2, Sparkles, } from 'lucide-react';
+import { generateUUID } from '../utils/blockRegistry';
+
 export const InspectorAndQualityPanel = ({ selectedBlock, selectedBlockIndex = 0, qualityResult, onUpdateSelectedBlock, onJumpToBlock, onApplyQuickFix, }) => {
     const [activeTab, setActiveTab] = useState('PROPERTIES');
     // Hard Semantic Guardrail helper: if MASTERY_EVIDENCE chosen, ensure response_type is not NONE
@@ -10,11 +12,18 @@ export const InspectorAndQualityPanel = ({ selectedBlock, selectedBlockIndex = 0
         if (role === 'MASTERY_EVIDENCE' && selectedBlock.response_type === 'NONE') {
             updates.response_type = 'SINGLE_CHOICE';
             if (!selectedBlock.options || selectedBlock.options.length < 2) {
+                const opt1 = generateUUID();
+                const opt2 = generateUUID();
                 updates.options = [
-                    { id: 'opt_1', text: 'Bullish Continuation', is_correct: true },
-                    { id: 'opt_2', text: 'Bearish Reversal', is_correct: false },
+                    { id: opt1, text: 'Bullish Continuation', is_correct: true },
+                    { id: opt2, text: 'Bearish Reversal', is_correct: false },
                 ];
-                updates.correct_option_id = 'opt_1';
+                updates.correct_option_id = opt1;
+                updates.evaluation = {
+                    ...(selectedBlock.evaluation || {}),
+                    correct_option_id: opt1,
+                    explanation: 'Explanation for correct choice.',
+                };
             }
         }
         onUpdateSelectedBlock({ ...selectedBlock, ...updates });
@@ -23,7 +32,7 @@ export const InspectorAndQualityPanel = ({ selectedBlock, selectedBlockIndex = 0
         if (!selectedBlock)
             return;
         const currentOptions = selectedBlock.options || [];
-        const newId = `opt_${Date.now()}`;
+        const newId = generateUUID();
         const newOption = {
             id: newId,
             text: `Option ${currentOptions.length + 1}`,
@@ -48,10 +57,15 @@ export const InspectorAndQualityPanel = ({ selectedBlock, selectedBlockIndex = 0
             ...o,
             is_correct: i === idx,
         }));
+        const correctId = options[idx]?.id;
         onUpdateSelectedBlock({
             ...selectedBlock,
             options,
-            correct_option_id: options[idx]?.id,
+            correct_option_id: correctId,
+            evaluation: {
+                ...(selectedBlock.evaluation || {}),
+                correct_option_id: correctId,
+            },
         });
     };
     const handleRemoveOption = (idx) => {

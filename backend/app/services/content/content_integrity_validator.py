@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.concept import Concept, ConceptRelationship
 from app.models.lesson import Lesson, LessonVersion
+from app.core.config import settings
 
 @dataclass
 class ContentIntegrityReport:
@@ -91,10 +92,25 @@ class ContentIntegrityValidator:
         """
         errors = []
 
+        # 0. Pedagogical Learning Objectives Validation (Phase 9 Quality Gate)
+        objectives = version.learning_objectives or []
+        if settings.ENVIRONMENT not in ("development", "test", "testing"):
+            if not objectives:
+                errors.append("PRODUCTION_PUBLISH_BLOCKER: Lesson must have at least one defined learning objective.")
+            for obj in objectives:
+                obj_text = str(obj).strip()
+                if "fallback objective" in obj_text.lower() or obj_text.startswith("⚠"):
+                    errors.append(f"PRODUCTION_PUBLISH_BLOCKER: Temporary development fallback objective '{obj_text}' must be resolved prior to production publication.")
+                if not obj_text:
+                    errors.append("PRODUCTION_PUBLISH_BLOCKER: Unresolved empty learning objective detected.")
+
+        if errors:
+            return False, errors
+
         # 1. Concept IDs referenced in version
         concept_ids_or_slugs = version.concept_ids or []
         if not concept_ids_or_slugs:
-            # In dev/testing phase: allow publishing lessons so authors can test researched data
+            # When objectives are valid, allow LCMS block-based lessons to publish
             return True, []
 
         uuid_candidates = []

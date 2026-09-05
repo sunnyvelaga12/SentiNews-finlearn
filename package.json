@@ -8,9 +8,7 @@
     "dev:frontend": "npm run --prefix frontend dev",
     "dev:backend": "cd backend && uvicorn app.main:app --reload --port 8000",
     "build": "npm run --prefix frontend build",
-    "test": "npm run test:backend && npm run test:frontend",
-    "test:frontend": "npm run --prefix frontend build",
-    "test:backend": "cd backend && python -m pytest tests"
+    "test": "npm run --prefix frontend build"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"

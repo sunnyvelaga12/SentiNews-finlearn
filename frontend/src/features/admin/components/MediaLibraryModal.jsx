@@ -183,6 +183,35 @@ export const MediaLibraryModal = ({ isOpen, onClose, onSelect, activeAssetId = n
                         <Check className="w-3.5 h-3.5 stroke-[3]" />
                       </div>
                     )}
+                    {/* Delete button overlay */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (window.confirm(`Delete "${asset.filename}"? This cannot be undone.`)) {
+                          const token = localStorage.getItem('sentinews_token') || '';
+                          fetch(`/api/v1/admin/media/${asset.id || asset.media_asset_id}`, {
+                            method: 'DELETE',
+                            headers: {
+                              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                              'X-User-Id': '00000000-0000-0000-0000-000000000001',
+                              'Content-Type': 'application/json',
+                              'X-CSRFToken': 'dev-csrf-exempt',
+                            },
+                          }).then(() => {
+                            if (selectedAsset?.id === asset.id || selectedAsset?.media_asset_id === asset.media_asset_id) {
+                              setSelectedAsset(null);
+                            }
+                            loadMedia();
+                          }).catch(console.error);
+                        }
+                      }}
+                      title="Delete asset"
+                      className="absolute bottom-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 bg-rose-600 hover:bg-rose-700 text-white rounded-md shadow-md"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
                   </div>
                   <div className="p-2.5 flex flex-col justify-between flex-1">
                     <p className="text-xs font-semibold text-slate-800 truncate" title={asset.filename}>
@@ -198,6 +227,7 @@ export const MediaLibraryModal = ({ isOpen, onClose, onSelect, activeAssetId = n
             })
           )}
         </div>
+
 
         {/* Footer */}
         <div className="px-6 py-4 border-t border-slate-200 bg-white flex items-center justify-between">

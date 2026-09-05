@@ -8,6 +8,7 @@ import { ReviewInbox } from './components/ReviewInbox';
 import { SourceLibrary } from './components/SourceLibrary';
 import { ContentHealthDashboard } from './components/ContentHealthDashboard';
 import { evaluatePedagogicalQuality } from './utils/pedagogicalRules';
+import { generateUUID, createBlock } from './utils/blockRegistry';
 import { apiClient } from '../../services/apiClient';
 import { Play, Edit3, AlertOctagon, } from 'lucide-react';
 export const AdminStudioPage = () => {
@@ -48,46 +49,54 @@ export const AdminStudioPage = () => {
             setIsLoadingTree(true);
             const data = await apiClient('/api/v1/curriculum/admin/tree');
             if (data) {
-                // Normalize tree into domains/modules
                 const rawTree = Array.isArray(data) ? data : (data?.tree || []);
-                const normalized = rawTree.map((d) => ({
-                    domain: d.name,
-                    modules: (d.worlds || []).flatMap((w) => (w.series || []).flatMap((s) => s.modules || [])),
-                }));
-                setTree(normalized);
+                setTree(rawTree);
 
-                // If a target lesson was specified (e.g. after draft creation), select it
-                if (targetLessonId) {
-                    for (const d of normalized) {
-                        for (const m of d.modules) {
-                            for (const u of m.units) {
-                                const l = u.lessons.find((les) => les.id === targetLessonId || les.version_id === targetLessonId);
-                                if (l) {
-                                    setSelectedModule(m);
-                                    setSelectedUnit(u);
-                                    setSelectedLesson(l);
-                                    loadLessonDraft(l);
-                                    return;
+                // Flatten units with lessons from full 6-level hierarchy for selection lookups
+                const allUnitsWithLessons = [];
+                for (const d of rawTree) {
+                    for (const w of (d.worlds || [])) {
+                        for (const s of (w.series || [])) {
+                            for (const m of (s.modules || [])) {
+                                for (const u of (m.units || [])) {
+                                    allUnitsWithLessons.push({ module: m, unit: u, lessons: u.lessons || [] });
                                 }
                             }
                         }
                     }
                 }
 
+                // If a target lesson was specified or previously active in sessionStorage, select it
+                const targetId = targetLessonId || (typeof window !== 'undefined' ? sessionStorage.getItem('lcms_active_lesson_id') : null);
+                if (targetId) {
+                    for (const item of allUnitsWithLessons) {
+                        const l = item.lessons.find((les) => les.id === targetId || les.version_id === targetId);
+                        if (l) {
+                            setSelectedModule(item.module);
+                            setSelectedUnit(item.unit);
+                            setSelectedLesson(l);
+                            if (typeof window !== 'undefined' && l.id) {
+                                sessionStorage.setItem('lcms_active_lesson_id', l.id);
+                            }
+                            loadLessonDraft(l);
+                            return;
+                        }
+                    }
+                }
+
                 // Auto-select first lesson if none selected
                 if (!selectedLesson) {
-                    for (const d of normalized) {
-                        for (const m of d.modules) {
-                            for (const u of m.units) {
-                                if (u.lessons && u.lessons.length > 0) {
-                                    const firstLesson = u.lessons[0];
-                                    setSelectedModule(m);
-                                    setSelectedUnit(u);
-                                    setSelectedLesson(firstLesson);
-                                    loadLessonDraft(firstLesson);
-                                    return;
-                                }
+                    for (const item of allUnitsWithLessons) {
+                        if (item.lessons.length > 0) {
+                            const firstLesson = item.lessons[0];
+                            setSelectedModule(item.module);
+                            setSelectedUnit(item.unit);
+                            setSelectedLesson(firstLesson);
+                            if (typeof window !== 'undefined' && firstLesson.id) {
+                                sessionStorage.setItem('lcms_active_lesson_id', firstLesson.id);
                             }
+                            loadLessonDraft(firstLesson);
+                            return;
                         }
                     }
                 }
@@ -106,6 +115,9 @@ export const AdminStudioPage = () => {
     // ── 2. Load Selected Lesson Draft ──────────────────────────────────────────
     const loadLessonDraft = async (lesson) => {
         try {
+            if (lesson.id && typeof window !== 'undefined') {
+                sessionStorage.setItem('lcms_active_lesson_id', lesson.id);
+            }
             if (lesson.version_id) {
                 const data = await apiClient(`/api/v1/admin/lessons/draft/${lesson.version_id}`);
                 if (data) {
@@ -117,10 +129,13 @@ export const AdminStudioPage = () => {
                     setCurrentVersionId(data.version_id || lesson.version_id);
                     setVersionNumber(data.version_number || lesson.version_number || 1);
                     setStatus(data.status || lesson.status);
-                    // Populate blocks
+                    // Populate blocks sorted strictly by order_index
                     const rawBlocks = data.blocks || [];
                     if (rawBlocks.length > 0) {
-                        setBlocks(rawBlocks);
+                        const sortedBlocks = [...rawBlocks].sort(
+                            (a, b) => (a.order_index ?? 0) - (b.order_index ?? 0)
+                        );
+                        setBlocks(sortedBlocks);
                     }
                     else {
                         // Provide sensible defaults for empty lessons
@@ -242,12 +257,25 @@ export const AdminStudioPage = () => {
             setIsSaving(false);
         }
     };
+
+    // ── 4b. Debounced Autosave (1000ms idle with OCC If-Match) ─────────────────
+    useEffect(() => {
+        if (!hasUnsavedChanges || !currentVersionId || isSaving || occConflict) {
+            return;
+        }
+        const timer = setTimeout(() => {
+            handleSaveDraft();
+        }, 1000);
+        return () => clearTimeout(timer);
+    }, [hasUnsavedChanges, currentVersionId, isSaving, occConflict, lessonTitle, durationMinutes, learningObjectives, blocks, versionNumber]);
+
     // ── 5. Staged Creation Handlers ────────────────────────────────────────────
-    const handleCreateModule = async (name, description) => {
+    const handleCreateModule = async (moduleData) => {
         try {
+            const payload = typeof moduleData === 'string' ? { name: moduleData } : moduleData;
             const data = await apiClient('/api/v1/curriculum/modules', {
                 method: 'POST',
-                body: JSON.stringify({ name, description }),
+                body: JSON.stringify(payload),
             });
             await fetchCurriculumTree();
             return data;
@@ -275,7 +303,11 @@ export const AdminStudioPage = () => {
         }
     };
 
-    const handleCreateLesson = async (unitId, title) => {
+    const handleCreateLesson = async (unitId, lessonInput) => {
+        const title = typeof lessonInput === 'string' ? lessonInput : lessonInput.title;
+        const durationMinutes = lessonInput?.durationMinutes || 5;
+        const lessonLevel = lessonInput?.level || 'BEGINNER';
+        const objectives = lessonInput?.learningObjectives || [`Understand ${title}`];
         const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
         try {
             const data = await apiClient('/api/v1/admin/lessons/draft', {
@@ -284,26 +316,26 @@ export const AdminStudioPage = () => {
                     unit_id: unitId,
                     slug,
                     title,
-                    level: 'BEGINNER',
-                    duration_minutes: 5,
-                    learning_objectives: [`Understand ${title}`],
+                    level: lessonLevel,
+                    duration_minutes: durationMinutes,
+                    learning_objectives: objectives,
                     blocks: [
                         {
                             id: `block_${Date.now()}`,
                             order_index: 0,
                             content_type: 'HEADING',
-                            activity_type: 'EXPERIENCE',
+                            activity_type: 'OBSERVE',
                             response_type: 'NONE',
-                            content: { title, level: 1 },
+                            content: { title, level: 'H1' },
                             difficulty: 1,
                         },
                         {
                             id: `block_${Date.now() + 1}`,
                             order_index: 1,
                             content_type: 'TEXT',
-                            activity_type: 'EXPERIENCE',
+                            activity_type: 'OBSERVE',
                             response_type: 'NONE',
-                            content: { body: 'Introduce core concepts and key principles here...' },
+                            content: { text: 'Introduce core concepts and key principles here...' },
                             difficulty: 1,
                         },
                     ],
@@ -327,6 +359,19 @@ export const AdminStudioPage = () => {
             console.error('Failed to create lesson draft:', err);
             throw err;
         }
+    };
+    const handleDeleteLesson = async (deletedLessonId) => {
+        // If the deleted lesson is currently selected, reset state
+        if (selectedLesson?.id === deletedLessonId) {
+            setSelectedLesson(null);
+            setSelectedUnit(null);
+            setSelectedModule(null);
+            setLessonTitle('');
+            setLessonSlug('');
+            setBlocks([]);
+            setHasUnsavedChanges(false);
+        }
+        await fetchCurriculumTree();
     };
     // ── 6. Governance Actions (Submit, Review, Publish) ────────────────────────
     const handleSubmitForReview = async () => {
@@ -400,19 +445,51 @@ export const AdminStudioPage = () => {
         const temp = nextBlocks[idx];
         nextBlocks[idx] = nextBlocks[targetIdx];
         nextBlocks[targetIdx] = temp;
+        nextBlocks.forEach((b, i) => {
+            b.order_index = i;
+        });
         setBlocks(nextBlocks);
         setActiveBlockIndex(targetIdx);
         setHasUnsavedChanges(true);
     };
     const handleDuplicateBlock = (idx) => {
         const source = blocks[idx];
+        if (!source) return;
+
+        let newOptions = undefined;
+        let newCorrectOptionId = undefined;
+
+        if (Array.isArray(source.options) && source.options.length > 0) {
+            const oldToNewMap = new Map();
+            newOptions = source.options.map((opt) => {
+                const newOptId = generateUUID();
+                oldToNewMap.set(opt.id, newOptId);
+                return {
+                    ...opt,
+                    id: newOptId,
+                };
+            });
+            const oldCorrect = source.evaluation?.correct_option_id || source.correct_option_id;
+            newCorrectOptionId = oldToNewMap.get(oldCorrect) || newOptions[0]?.id;
+        }
+
         const duplicate = {
-            ...source,
-            id: `step_${Date.now()}`,
-            title: `${source.title} (Copy)`,
+            ...JSON.parse(JSON.stringify(source)),
+            id: generateUUID(),
+            title: source.title ? `${source.title} (Copy)` : 'Copy',
+            options: newOptions !== undefined ? newOptions : source.options,
+            evaluation: source.evaluation ? {
+                ...source.evaluation,
+                correct_option_id: newCorrectOptionId || source.evaluation.correct_option_id,
+            } : undefined,
+            correct_option_id: newCorrectOptionId || source.correct_option_id,
         };
+
         const nextBlocks = [...blocks];
         nextBlocks.splice(idx + 1, 0, duplicate);
+        nextBlocks.forEach((b, i) => {
+            b.order_index = i;
+        });
         setBlocks(nextBlocks);
         setActiveBlockIndex(idx + 1);
         setHasUnsavedChanges(true);
@@ -421,56 +498,73 @@ export const AdminStudioPage = () => {
         if (blocks.length <= 1)
             return;
         const nextBlocks = blocks.filter((_, i) => i !== idx);
+        nextBlocks.forEach((b, i) => {
+            b.order_index = i;
+        });
         setBlocks(nextBlocks);
         setActiveBlockIndex(Math.max(0, idx - 1));
         setHasUnsavedChanges(true);
     };
-    const handleAddBlock = (blockInput) => {
-        const isObj = typeof blockInput === 'object' && blockInput !== null;
-        const cType = isObj ? (blockInput.content_type || 'TEXT') : (blockInput === 'HEADING' ? 'HEADING' : 'TEXT');
-        const rType = isObj ? (blockInput.response_type || 'NONE') : (['PREDICT', 'PRACTICE', 'MISCONCEPTION_CHECK'].includes(blockInput) ? 'SINGLE_CHOICE' : 'NONE');
-        const aType = isObj ? (blockInput.activity_type || 'EXPERIENCE') : (typeof blockInput === 'string' ? blockInput : 'EXPERIENCE');
-        const eRole = isObj ? (blockInput.evidence_role || (rType !== 'NONE' ? 'MASTERY_EVIDENCE' : 'NONE')) : (blockInput === 'PREDICT' ? 'MASTERY_EVIDENCE' : 'NONE');
-
-        const optA = `opt_${Date.now()}_1`;
-        const optB = `opt_${Date.now()}_2`;
-
-        const newBlock = {
-            id: `block_${Date.now()}`,
-            order_index: blocks.length,
-            content_type: cType,
-            type: cType,
-            activity_type: aType,
-            response_type: rType,
-            evidence_role: eRole,
-            difficulty: 1,
-            title: isObj ? (blockInput.title || `New ${cType}`) : `New ${aType.replace('_', ' ')} Step`,
-            prompt: '',
-            content: isObj && blockInput.content ? blockInput.content : (
-                cType === 'HEADING' ? { title: 'New Section Heading', level: 2 } :
-                cType === 'TEXT' ? { body: '' } :
-                cType === 'IMAGE' ? { url: '', caption: '', alt: '' } :
-                cType === 'CALLOUT' ? { tone: 'INFO', title: 'Key Takeaway', body: '' } :
-                cType === 'ANALOGY' ? { source_domain: '', target_domain: '', mapping_text: '' } :
-                cType === 'CANDLESTICK' ? { open: 100, high: 125, low: 95, close: 120, timeframe: '1D' } :
-                cType === 'TABLE' ? { headers: ['Category', 'Value'], rows: [['Metric A', '100']] } :
-                cType === 'SCENARIO' ? { context: '', dilemma: '' } :
-                { body: '' }
-            ),
-            options: rType !== 'NONE' ? [
-                { id: optA, text: 'Option A (Correct)', is_correct: true },
-                { id: optB, text: 'Option B', is_correct: false },
-            ] : undefined,
-            evaluation: rType !== 'NONE' ? {
-                correct_option_id: optA,
-                explanation: 'Explanation for learner feedback and remediation.',
-            } : undefined,
-            correct_option_id: rType !== 'NONE' ? optA : undefined,
-            feedback: { explanation: 'Feedback on learner selection.' },
-        };
-
-        setBlocks([...blocks, newBlock]);
-        setActiveBlockIndex(blocks.length);
+    const handleAddBlock = (blockInput, insertAt = null) => {
+        let newBlock;
+        if (typeof blockInput === 'string') {
+            try {
+                newBlock = createBlock(blockInput, blocks.length);
+            } catch {
+                newBlock = createBlock('TEXT', blocks.length);
+            }
+        } else if (typeof blockInput === 'object' && blockInput !== null) {
+            const cType = blockInput.content_type || blockInput.type || 'TEXT';
+            try {
+                newBlock = createBlock(cType, blocks.length, blockInput);
+            } catch {
+                const optA = generateUUID();
+                const optB = generateUUID();
+                const isInteractive = (blockInput.response_type && blockInput.response_type !== 'NONE');
+                newBlock = {
+                    id: generateUUID(),
+                    order_index: blocks.length,
+                    content_type: cType,
+                    type: cType,
+                    activity_type: blockInput.activity_type || 'OBSERVE',
+                    response_type: blockInput.response_type || 'NONE',
+                    evidence_role: blockInput.evidence_role || (isInteractive ? 'MASTERY_EVIDENCE' : 'NONE'),
+                    difficulty: blockInput.difficulty || 1,
+                    title: blockInput.title || `New ${cType}`,
+                    content: blockInput.content || (cType === 'TEXT' ? { text: '' } : {}),
+                    options: isInteractive ? (blockInput.options || [
+                        { id: optA, text: 'Option A (Correct)', is_correct: true },
+                        { id: optB, text: 'Option B', is_correct: false },
+                    ]) : undefined,
+                    evaluation: isInteractive ? (blockInput.evaluation || {
+                        correct_option_id: optA,
+                        explanation: 'Explanation for learner feedback and remediation.',
+                    }) : undefined,
+                    correct_option_id: isInteractive ? optA : undefined,
+                };
+            }
+        }
+        if (newBlock) {
+            // insertAt: optional position (0-indexed). null = append to end.
+            if (insertAt !== null && insertAt >= 0 && insertAt <= blocks.length) {
+                const nextBlocks = [
+                    ...blocks.slice(0, insertAt),
+                    { ...newBlock, order_index: insertAt },
+                    ...blocks.slice(insertAt),
+                ];
+                nextBlocks.forEach((b, i) => { b.order_index = i; });
+                setBlocks(nextBlocks);
+                setActiveBlockIndex(insertAt);
+            } else {
+                newBlock.order_index = blocks.length;
+                setBlocks([...blocks, newBlock]);
+                setActiveBlockIndex(blocks.length);
+            }
+            setHasUnsavedChanges(true);
+        }
+    };
+    const handleReorderBlocks = (reorderedBlocks) => {
+        setBlocks(reorderedBlocks);
         setHasUnsavedChanges(true);
     };
     const handleApplyQuickFix = (issue) => {
@@ -615,7 +709,7 @@ export const AdminStudioPage = () => {
                 loadLessonDraft(lesson);
             }} onCreateModule={handleCreateModule} onCreateUnit={handleCreateUnit} onCreateLesson={handleCreateLesson} onPromptUnsavedChanges={(targetAction) => {
                 setPendingNavigationAction(() => targetAction);
-            }}/>
+            }} onEditModule={() => fetchCurriculumTree()} onDeleteModule={() => fetchCurriculumTree()} onEditUnit={() => fetchCurriculumTree()} onDeleteUnit={() => fetchCurriculumTree()} onDeleteLesson={handleDeleteLesson}/>
           </div>
 
           {/* Column 2: Pedagogical Canvas (Center Flex) */}
@@ -631,10 +725,11 @@ export const AdminStudioPage = () => {
                 if (updates.learningObjectives !== undefined)
                     setLearningObjectives(updates.learningObjectives);
                 setHasUnsavedChanges(true);
-            }} onSelectBlock={(idx) => setActiveBlockIndex(idx)} onUpdateBlock={handleUpdateBlock} onMoveBlock={handleMoveBlock} onDuplicateBlock={handleDuplicateBlock} onDeleteBlock={handleDeleteBlock} onAddBlock={handleAddBlock} onPreviewStep={(idx) => {
+            }} onSelectBlock={(idx) => setActiveBlockIndex(idx)} onUpdateBlock={handleUpdateBlock} onMoveBlock={handleMoveBlock} onDuplicateBlock={handleDuplicateBlock} onDeleteBlock={handleDeleteBlock} onAddBlock={handleAddBlock} onReorderBlocks={handleReorderBlocks} onPreviewStep={(idx) => {
                 setActiveBlockIndex(idx);
                 setMode('PREVIEW');
             }}/>
+
 
           {/* Column 3: Properties, Quality & Sources Inspector (Right 340px) */}
           <InspectorAndQualityPanel selectedBlock={blocks[activeBlockIndex]} selectedBlockIndex={activeBlockIndex} qualityResult={qualityResult} onUpdateSelectedBlock={(updated) => handleUpdateBlock(activeBlockIndex, updated)} onJumpToBlock={(idx) => setActiveBlockIndex(idx)} onApplyQuickFix={handleApplyQuickFix}/>

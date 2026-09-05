@@ -8,6 +8,7 @@ from app.models.content_review import AuditLog
 from app.schemas.content_authoring import LessonAuthoringSchema
 from app.services.content.content_integrity_validator import ContentIntegrityValidator
 from app.services.content.pedagogical_validator import PedagogicalValidator
+from app.core.config import settings
 
 
 class ContentPublicationService:
@@ -41,9 +42,13 @@ class ContentPublicationService:
         7. Append AuditLog
         8. Enqueue OutboxEvent
         """
-        # In dev/testing phase: allow authors to publish directly for testing
-        if actor_role not in ["PUBLISHER", "SUPER_ADMIN", "CONTENT_EDITOR", "ADMIN", "LEARNER"]:
-            raise ValueError("UNAUTHORIZED_PUBLISH_ROLE: Only authorized users may publish content.")
+        # Role check:
+        if settings.ENVIRONMENT in ("development", "test", "testing"):
+            allowed_roles = ["PUBLISHER", "SUPER_ADMIN", "CONTENT_EDITOR", "ADMIN", "LEARNER"]
+        else:
+            allowed_roles = ["PUBLISHER", "SUPER_ADMIN"]
+        if actor_role not in allowed_roles:
+            raise ValueError(f"UNAUTHORIZED_PUBLISH_ROLE: Role '{actor_role}' may not publish content in {settings.ENVIRONMENT} environment.")
 
         # 1. Fetch Version and Lesson
         v_stmt = select(LessonVersion).where(LessonVersion.id == version_id)
@@ -84,8 +89,10 @@ class ContentPublicationService:
                 }
             raise ValueError("LESSON_VERSION_ALREADY_PUBLISHED: This version has already been published.")
 
-        # 3. Check RBAC Review Approvals (bypassed in dev/testing phase so authors can test researched data)
-        # In production, strict multi-role review governance will be enforced here.
+        # 3. Check Production Governance & Approvals
+        if settings.ENVIRONMENT not in ("development", "test", "testing"):
+            if version.status != "APPROVED":
+                raise ValueError(f"UNAPPROVED_LESSON_CANNOT_PUBLISH: Lesson version must be in APPROVED status to publish in production. Current status: '{version.status}'.")
 
         # 4. Strict Publish Dependency Validation
         deps_valid, dep_errors = await ContentIntegrityValidator.validate_publish_dependencies(session, version)
@@ -305,8 +312,14 @@ class ContentService:
             ]
 
         # Audit Log
+        valid_audit_actor_id = None
+        if actor_id:
+            from app.models.user import User
+            u_stmt = select(User.id).where(User.id == actor_id)
+            valid_audit_actor_id = (await session.execute(u_stmt)).scalar_one_or_none()
+
         audit = AuditLog(
-            actor_id=actor_id,
+            actor_id=valid_audit_actor_id,
             action="UPDATE_LESSON_DRAFT",
             resource_type="LessonVersion",
             resource_id=str(version.id),
@@ -363,8 +376,14 @@ class ContentService:
         version.status = new_status
 
         # Add Audit log
+        valid_audit_actor_id = None
+        if actor_id:
+            from app.models.user import User
+            u_stmt = select(User.id).where(User.id == actor_id)
+            valid_audit_actor_id = (await session.execute(u_stmt)).scalar_one_or_none()
+
         audit = AuditLog(
-            actor_id=actor_id,
+            actor_id=valid_audit_actor_id,
             action=f"TRANSITION_STATUS_{new_status}",
             resource_type="LessonVersion",
             resource_id=str(version.id),

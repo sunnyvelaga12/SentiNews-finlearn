@@ -7,6 +7,7 @@ from app.models.lesson import Lesson, LessonVersion
 from app.models.learning import LearningActivity, LearningObjective
 from app.models.concept import Concept
 from app.schemas.content_authoring import StoredBlock, ResponseType
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -112,36 +113,41 @@ class ContentProjectionService:
 
             # In dev/testing phase: ensure interactive blocks have a valid concept/objective so authoring isn't blocked
             if not target_objective_id or not target_concept_id:
-                auto_slug = f"concept-{(lesson.slug or 'general')[:40]}"
-                c_stmt = select(Concept).where(Concept.slug == auto_slug)
-                auto_concept = (await db.execute(c_stmt)).scalar_one_or_none()
-                if not auto_concept:
-                    auto_concept = Concept(
-                        id=uuid.uuid4(),
-                        slug=auto_slug,
-                        title=lesson.title or "General Concept",
-                        status="PUBLISHED",
-                        domain="FOUNDATIONS",
-                        learning_level="L0_INTRO",
-                        difficulty_tier=1
-                    )
-                    db.add(auto_concept)
-                    await db.flush()
-                target_concept_id = auto_concept.id
+                if settings.ENVIRONMENT in ("development", "test", "testing"):
+                    auto_slug = f"concept-{(lesson.slug or 'general')[:40]}"
+                    c_stmt = select(Concept).where(Concept.slug == auto_slug)
+                    auto_concept = (await db.execute(c_stmt)).scalar_one_or_none()
+                    if not auto_concept:
+                        auto_concept = Concept(
+                            id=uuid.uuid4(),
+                            slug=auto_slug,
+                            title=lesson.title or "General Concept",
+                            status="PUBLISHED",
+                            domain="FOUNDATIONS",
+                            learning_level="L0_INTRO",
+                            difficulty_tier=1
+                        )
+                        db.add(auto_concept)
+                        await db.flush()
+                    target_concept_id = auto_concept.id
 
-                obj_stmt = select(LearningObjective).where(LearningObjective.concept_id == auto_concept.id).limit(1)
-                auto_obj = (await db.execute(obj_stmt)).scalar_one_or_none()
-                if not auto_obj:
-                    auto_obj = LearningObjective(
-                        id=uuid.uuid4(),
-                        slug=f"obj-{auto_concept.slug[:20]}-{uuid.uuid4().hex[:4]}",
-                        title=f"Understand {lesson.title}",
-                        concept_id=auto_concept.id,
-                        taxonomy_level="APPLY",
+                    obj_stmt = select(LearningObjective).where(LearningObjective.concept_id == auto_concept.id).limit(1)
+                    auto_obj = (await db.execute(obj_stmt)).scalar_one_or_none()
+                    if not auto_obj:
+                        auto_obj = LearningObjective(
+                            id=uuid.uuid4(),
+                            slug=f"obj-{auto_concept.slug[:20]}-{uuid.uuid4().hex[:4]}",
+                            title=f"Understand {lesson.title}",
+                            concept_id=auto_concept.id,
+                            taxonomy_level="APPLY",
+                        )
+                        db.add(auto_obj)
+                        await db.flush()
+                    target_objective_id = auto_obj.id
+                else:
+                    raise ValueError(
+                        f"OBJECTIVE_RESOLUTION_FAILED: Block '{block_id}' requires a valid resolved LearningObjective in production environment."
                     )
-                    db.add(auto_obj)
-                    await db.flush()
-                target_objective_id = auto_obj.id
 
             # Deterministic activity UUID
             activity_id = uuid.uuid5(version.id, block_id)

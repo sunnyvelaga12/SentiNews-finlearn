@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.security import verify_jwt_token, validate_origin_and_csrf
+from app.core.config import settings
 from app.models.lesson import Lesson, LessonVersion
 
 router = APIRouter()
@@ -96,9 +97,13 @@ async def publish_lesson_atomic(
     actor_id = uuid.UUID(payload["sub"])
     actor_role = payload.get("role", "LEARNER")
 
-    # In dev/testing phase: allow authors to publish directly for testing
-    if actor_role not in ["PUBLISHER", "SUPER_ADMIN", "CONTENT_EDITOR", "ADMIN", "LEARNER"]:
-        raise HTTPException(status_code=403, detail="FORBIDDEN: Only authorized roles can publish lessons.")
+    # Environment-scoped role gate
+    if settings.ENVIRONMENT in ("development", "test", "testing"):
+        allowed_roles = ["PUBLISHER", "SUPER_ADMIN", "CONTENT_EDITOR", "ADMIN", "LEARNER"]
+    else:
+        allowed_roles = ["PUBLISHER", "SUPER_ADMIN"]
+    if actor_role not in allowed_roles:
+        raise HTTPException(status_code=403, detail=f"FORBIDDEN: Role '{actor_role}' cannot publish lessons in {settings.ENVIRONMENT} environment.")
 
     from app.services.content_service import ContentPublicationService
 

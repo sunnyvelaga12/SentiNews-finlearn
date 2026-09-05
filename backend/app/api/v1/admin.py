@@ -626,3 +626,118 @@ async def list_media_assets(
     }
 
 
+@router.delete("/admin/lessons/{lesson_id}", summary="Delete a lesson and all its draft versions")
+async def delete_lesson(
+    lesson_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Permanently deletes a lesson and all associated LessonVersion records.
+    Rejects if any version has PUBLISHED status (use unpublish flow first).
+    """
+    validate_origin_and_csrf(request)
+    actor_id, actor_role = get_admin_actor(request, ["CONTENT_EDITOR", "SUPER_ADMIN", "ADMIN"])
+
+    l_stmt = select(Lesson).where(Lesson.id == lesson_id)
+    l_res = await db.execute(l_stmt)
+    lesson = l_res.scalar_one_or_none()
+    if not lesson:
+        raise HTTPException(status_code=404, detail="LESSON_NOT_FOUND")
+
+    # Check for published versions
+    from sqlalchemy import delete as sql_delete
+    v_stmt = select(LessonVersion).where(LessonVersion.lesson_id == lesson_id)
+    v_res = await db.execute(v_stmt)
+    versions = v_res.scalars().all()
+
+    published = [v for v in versions if v.status == "PUBLISHED"]
+    if published and actor_role != "SUPER_ADMIN":
+        raise HTTPException(
+            status_code=409,
+            detail="LESSON_HAS_PUBLISHED_VERSIONS: Cannot delete a lesson with published content. Use SUPER_ADMIN role or unpublish first."
+        )
+
+    # Audit log the deletion
+    audit = AuditLog(
+        id=uuid.uuid4(),
+        actor_id=actor_id,
+        action="LESSON_DELETED",
+        resource_type="Lesson",
+        resource_id=str(lesson_id),
+        reason=f"Admin deletion by role {actor_role}",
+        new_state={"deleted_versions": len(versions), "had_published": bool(published)},
+    )
+    db.add(audit)
+
+    # Delete all versions then the lesson
+    await db.execute(sql_delete(LessonVersion).where(LessonVersion.lesson_id == lesson_id))
+    await db.execute(sql_delete(Lesson).where(Lesson.id == lesson_id))
+    await db.commit()
+
+    return {
+        "status": "SUCCESS",
+        "message": f"Lesson '{lesson.title or lesson.slug}' and {len(versions)} version(s) deleted.",
+        "lesson_id": str(lesson_id),
+        "deleted_versions": len(versions),
+    }
+
+
+@router.delete("/admin/media/{asset_id}", summary="Delete a media asset record")
+async def delete_media_asset(
+    asset_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    validate_origin_and_csrf(request)
+    actor_id, actor_role = get_admin_actor(request, ["CONTENT_EDITOR", "SUPER_ADMIN", "ADMIN"])
+
+    from sqlalchemy import delete as sql_delete
+    stmt = select(MediaAsset).where(MediaAsset.id == asset_id)
+    res = await db.execute(stmt)
+    asset = res.scalar_one_or_none()
+    if not asset:
+        raise HTTPException(status_code=404, detail="MEDIA_ASSET_NOT_FOUND")
+
+    # Try to remove file from disk
+    try:
+        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../uploads/media"))
+        target_path = os.path.abspath(os.path.join(base_dir, asset.storage_key))
+        if target_path.startswith(base_dir) and os.path.exists(target_path):
+            os.remove(target_path)
+    except Exception:
+        pass  # Best-effort file deletion
+
+    await db.execute(sql_delete(MediaAsset).where(MediaAsset.id == asset_id))
+    await db.commit()
+    return {"status": "SUCCESS", "message": f"Media asset '{asset.filename}' deleted.", "asset_id": str(asset_id)}
+
+
+@router.get("/admin/media/{asset_id}", summary="Resolve single media asset by canonical UUID")
+async def get_media_asset(
+    asset_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = select(MediaAsset).where(MediaAsset.id == asset_id)
+    res = await db.execute(stmt)
+    asset = res.scalar_one_or_none()
+    if not asset:
+        raise HTTPException(status_code=404, detail="MEDIA_ASSET_NOT_FOUND")
+    return {
+        "id": str(asset.id),
+        "media_asset_id": str(asset.id),
+        "filename": asset.filename,
+        "url": asset.url,
+        "width": asset.width,
+        "height": asset.height,
+        "file_size_bytes": asset.file_size_bytes,
+        "mime_type": asset.mime_type,
+        "checksum": asset.checksum,
+        "alt_text": asset.alt_text,
+        "caption": asset.caption,
+        "created_at": asset.created_at.isoformat() if asset.created_at else None,
+    }
+
+
+

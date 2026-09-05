@@ -96,8 +96,8 @@ export const GovernanceBar = ({ status, versionNumber, userRole = 'CONTENT_EDITO
               </button>
             </div>)}
 
-          {/* Action 6: Direct Publish (Unlocked for dev/testing phase) */}
-          {status !== 'PUBLISHED' && (<button onClick={onPublish} className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-black tracking-wide shadow-md transition-all hover:scale-[1.02]">
+          {/* Action 6: Direct Publish (Unlocked in dev/test, requires APPROVED in production) */}
+          {status !== 'PUBLISHED' && (import.meta.env.DEV || status === 'APPROVED') && (<button onClick={onPublish} className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-black tracking-wide shadow-md transition-all hover:scale-[1.02]">
               <Sparkles className="w-3.5 h-3.5 text-emerald-200"/>
               <span>Publish Lesson</span>
             </button>)}
