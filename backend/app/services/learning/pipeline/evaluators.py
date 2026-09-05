@@ -36,8 +36,13 @@ class ActivityEvaluator:
     ) -> EvaluationResult:
         selected = response.get("selected_option_id") or response.get("selected_option")
         expected = spec.get("correct_option_id") or spec.get("correct_option") or payload.get("correct_option_id") or payload.get("correct_option")
+        if not expected and payload.get("options"):
+            for opt in payload["options"]:
+                if isinstance(opt, dict) and opt.get("is_correct"):
+                    expected = opt.get("id")
+                    break
 
-        is_correct = (selected is not None and str(selected) == str(expected))
+        is_correct = (selected is not None and expected is not None and str(selected) == str(expected))
         score = 1.0 if is_correct else 0.0
 
         metadata = {

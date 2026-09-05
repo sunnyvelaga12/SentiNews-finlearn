@@ -241,59 +241,123 @@ export const SessionPlayerPage = () => {
         if (!currentItem || !selectedOption || isSubmitting)
             return;
         const payload = currentItem.payload || {};
-        const correctOptionId = payload.correct_option_id;
+        const correctOptionId = payload.correct_option_id
+            || currentItem.correct_option_id
+            || payload.evaluation?.correct_option_id
+            || currentItem.options?.find(o => o.is_correct)?.id
+            || payload.options?.find(o => o.is_correct)?.id;
         const misconceptionMap = payload.misconception_map || {};
-        const explanation = payload.explanation || 'Great job! You identified the key anatomical principle.';
-        // Check locally or via backend
-        const isCorrect = correctOptionId ? selectedOption === correctOptionId : true;
-        // Structured Telemetry: track prediction attempt
-        telemetry.track('prediction_submitted', {
-            sessionId: activeSessionId,
-            sessionItemId: currentItem.session_item_id,
-            conceptId: currentItem.concept_id,
-            payload: {
-                selected_option_id: selectedOption,
-                is_correct: isCorrect,
-                activity_type: currentItem.activity_type,
-                hints_used: hintTier,
-            },
-        });
-        if (!isCorrect) {
-            // Misconception diagnosed! Empathetic framing
-            const hint = misconceptionMap[selectedOption] ||
-                'Not quite. Take another look at the candle coordinates and try again.';
-            setRemediation({
-                status: 'MISCONCEPTION',
-                title: 'Not quite.',
-                message: hint,
+        const explanation = payload.explanation
+            || payload.feedback?.explanation
+            || currentItem.explanation
+            || 'Great job! You identified the key anatomical principle.';
+
+        // Practice Mode: Instant Synchronous Client Evaluation (<16ms)
+        if (correctOptionId !== undefined && correctOptionId !== null) {
+            const isCorrect = String(selectedOption) === String(correctOptionId);
+
+            telemetry.track('prediction_submitted', {
+                sessionId: activeSessionId,
+                sessionItemId: currentItem.session_item_id,
+                conceptId: currentItem.concept_id,
+                payload: {
+                    selected_option_id: selectedOption,
+                    is_correct: isCorrect,
+                    activity_type: currentItem.activity_type,
+                    hints_used: hintTier,
+                },
             });
+
+            if (!isCorrect) {
+                // Misconception: Immediate supportive feedback, never falsely marks correct
+                const hint = misconceptionMap[selectedOption]
+                    || payload.feedback?.[selectedOption]
+                    || 'Not quite. Take another look at the options and try again.';
+                setRemediation({
+                    status: 'MISCONCEPTION',
+                    title: 'Not quite.',
+                    message: hint,
+                });
+
+                // Background recording of formative attempt
+                const targetActivityId = currentItem.activity_id || currentItem.session_item_id;
+                if (activeSessionId && activeSessionId !== 'demo' && targetActivityId) {
+                    apiClient(`/api/v1/learning/sessions/${activeSessionId}/activities/${targetActivityId}/attempts`, {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            response: { selected_option_id: selectedOption },
+                            confidence_rating: 3,
+                        }),
+                    }).catch((err) => console.warn('Formative attempt recorded offline:', err));
+                }
+                return;
+            }
+
+            // Correct Answer: Instant zero-latency visual update
+            setRemediation({
+                status: 'CORRECT',
+                title: 'Spot on! 🎉',
+                message: explanation,
+            });
+
+            // Asynchronous authoritative attempt submission to Canonical Evidence Layer
+            const targetActivityId = currentItem.activity_id || currentItem.session_item_id;
+            if (activeSessionId && activeSessionId !== 'demo' && targetActivityId) {
+                apiClient(`/api/v1/learning/sessions/${activeSessionId}/activities/${targetActivityId}/attempts`, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        response: { selected_option_id: selectedOption },
+                        confidence_rating: 4,
+                    }),
+                }).catch((err) => {
+                    console.warn('Attempt recorded locally (offline resilience):', err);
+                });
+            }
             return;
         }
-        // Correct Answer: Submit attempt to Canonical Evidence Layer
+
+        // Assessment Mode Fallback: Server-Authoritative Evaluation
         setIsSubmitting(true);
         try {
             const targetActivityId = currentItem.activity_id || currentItem.session_item_id;
+            let serverIsCorrect = false;
+            let serverExplanation = explanation;
+
             if (activeSessionId && activeSessionId !== 'demo' && targetActivityId) {
-                await apiClient(`/api/v1/learning/sessions/${activeSessionId}/activities/${targetActivityId}/attempts`, {
+                const res = await apiClient(`/api/v1/learning/sessions/${activeSessionId}/activities/${targetActivityId}/attempts`, {
                     method: 'POST',
                     body: JSON.stringify({
                         response: { selected_option_id: selectedOption },
                         confidence_rating: 4,
                     }),
                 });
+                serverIsCorrect = res?.is_correct === true;
+                if (res?.explanation) serverExplanation = res.explanation;
             }
-        }
-        catch (err) {
-            console.warn('Attempt recorded locally (offline resilience):', err);
-        }
-        finally {
+
+            if (serverIsCorrect) {
+                setRemediation({
+                    status: 'CORRECT',
+                    title: 'Spot on! 🎉',
+                    message: serverExplanation,
+                });
+            } else {
+                setRemediation({
+                    status: 'MISCONCEPTION',
+                    title: 'Not quite.',
+                    message: misconceptionMap[selectedOption] || 'Not quite. Review the principles and try again.',
+                });
+            }
+        } catch (err) {
+            console.error('Evaluation attempt failed:', err);
+            setRemediation({
+                status: 'MISCONCEPTION',
+                title: 'Not quite.',
+                message: 'Review the details and try again.',
+            });
+        } finally {
             setIsSubmitting(false);
         }
-        setRemediation({
-            status: 'CORRECT',
-            title: 'Spot on! 🎉',
-            message: explanation,
-        });
     };
     // 3. Retry Handler (Clear selection, refocus visual without page reset)
     const handleRetry = () => {

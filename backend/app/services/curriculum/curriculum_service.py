@@ -4,10 +4,10 @@ Handles structural content retrieval, creation, updates, and tree assembly.
 Zero learner progression or mastery evaluation logic.
 """
 import uuid
-from typing import List, Optional, Dict, Any, Tuple
-from sqlalchemy import select, and_
+from typing import List, Optional, Dict, Any, Tuple, Set
+from sqlalchemy import select, and_, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, defer
 from app.models.curriculum import Domain, World, Series, Module, Unit, UnitConcept
 from app.models.concept import Concept
 from app.models.lesson import Lesson, LessonVersion
@@ -20,6 +20,149 @@ class CurriculumContentService:
         stmt = select(Module).order_by(Module.order_index.asc())
         res = await db.execute(stmt)
         return res.scalars().all()
+
+    @classmethod
+    async def get_catalog_modules_with_stats(
+        cls,
+        db: AsyncSession,
+        user_id: Optional[uuid.UUID] = None,
+        domain_slug: Optional[str] = None,
+        limit: int = 8,
+        offset: int = 0,
+    ) -> Dict[str, Any]:
+        """
+        High-performance catalog projection for the Learner Homepage.
+        - Avoids N+1 queries.
+        - Defer blocks_json and questions_json to minimize I/O and memory overhead.
+        - Computes exact unit and lesson stats using lightweight batch queries.
+        - Supports domain category filtering and offset pagination.
+        """
+        # 1. Fetch domains for domain navigation tabs
+        dom_stmt = select(Domain.slug, Domain.name).order_by(Domain.order_index.asc())
+        dom_res = await db.execute(dom_stmt)
+        domains_list = [{"slug": "all", "name": "All"}]
+        for slug, name in dom_res.all():
+            domains_list.append({"slug": slug, "name": name})
+
+        # 2. Query matching modules joined with Domain
+        base_query = (
+            select(
+                Module,
+                Domain.slug.label("domain_slug"),
+                Domain.name.label("domain_name")
+            )
+            .join(Series, Module.series_id == Series.id)
+            .join(World, Series.world_id == World.id)
+            .join(Domain, World.domain_id == Domain.id)
+        )
+        if domain_slug and domain_slug.lower() != "all":
+            base_query = base_query.where(Domain.slug == domain_slug.lower())
+
+        base_query = base_query.order_by(Module.order_index.asc())
+        all_mods_res = await db.execute(base_query)
+        all_matching = all_mods_res.all()
+        total_items = len(all_matching)
+
+        paged_slice = all_matching[offset : offset + limit] if limit > 0 else all_matching[offset:]
+        if not paged_slice:
+            return {
+                "modules": [],
+                "total_items": total_items,
+                "domains": domains_list,
+                "has_more": False,
+                "limit": limit,
+                "offset": offset,
+            }
+
+        paged_module_ids = [m.id for m, _, _ in paged_slice]
+
+        # 3. Batch query Units and UnitConcepts in ONE round-trip
+        u_stmt = (
+            select(Unit.module_id, Unit.id, UnitConcept.concept_id)
+            .outerjoin(UnitConcept, UnitConcept.unit_id == Unit.id)
+            .where(Unit.module_id.in_(paged_module_ids))
+        )
+        u_res = await db.execute(u_stmt)
+        module_unit_ids: Dict[uuid.UUID, Set[uuid.UUID]] = {mid: set() for mid in paged_module_ids}
+        module_concept_ids: Dict[uuid.UUID, Set[uuid.UUID]] = {mid: set() for mid in paged_module_ids}
+        for mid, uid, cid in u_res.all():
+            if uid:
+                module_unit_ids[mid].add(uid)
+            if cid:
+                module_concept_ids[mid].add(cid)
+        u_counts = {mid: len(uids) for mid, uids in module_unit_ids.items()}
+
+        # 5. Lightweight published lesson query (selects only necessary columns; does NOT fetch blocks_json)
+        l_stmt = (
+            select(Lesson.id, Lesson.slug, LessonVersion.concept_ids)
+            .join(LessonVersion, Lesson.current_version_id == LessonVersion.id)
+            .where(LessonVersion.status == "PUBLISHED")
+        )
+        l_res = await db.execute(l_stmt)
+        published_lessons = l_res.all()
+
+        # 6. User progress prefetch
+        completed_lesson_ids: Set[uuid.UUID] = set()
+        completed_concept_ids: Set[uuid.UUID] = set()
+        if user_id:
+            from app.services.curriculum.learner_curriculum_state_service import LearnerCurriculumStateService
+            completed_lesson_ids = await LearnerCurriculumStateService.get_completed_lesson_ids(db, user_id)
+            completed_concept_ids = await LearnerCurriculumStateService.get_verified_completed_concept_ids(db, user_id)
+
+        # 7. Assemble lightweight catalog items
+        catalog = []
+        for m, dom_slug, dom_name in paged_slice:
+            m_cids = module_concept_ids.get(m.id, set())
+            m_lessons = []
+            for lid, lslug, cids in published_lessons:
+                parsed_cids = set()
+                for c in (cids or []):
+                    try:
+                        parsed_cids.add(uuid.UUID(str(c)))
+                    except (ValueError, TypeError):
+                        pass
+                if parsed_cids & m_cids:
+                    m_lessons.append((lid, lslug, parsed_cids))
+
+            total_lessons = len(m_lessons)
+            completed_count = 0
+            for lid, lslug, parsed_cids in m_lessons:
+                if lid in completed_lesson_ids or (parsed_cids and all(cid in completed_concept_ids for cid in parsed_cids)):
+                    completed_count += 1
+
+            pct = round((completed_count / total_lessons * 100)) if total_lessons > 0 else 0
+            catalog.append({
+                "id": str(m.id),
+                "slug": m.slug,
+                "title": m.name,
+                "description": m.description or "",
+                "learner_goal": m.learner_goal or f"Master {m.name} with verified application evidence.",
+                "why_this_matters": m.why_this_matters or f"Understanding {m.name} is a foundational financial literacy skill.",
+                "domain": dom_slug,
+                "domain_name": dom_name,
+                "level": m.level or "BEGINNER",
+                "total_units": u_counts.get(m.id, 0),
+                "total_lessons": total_lessons,
+                "estimated_hours": m.estimated_hours or 1.5,
+                "progress": {
+                    "completed_lessons": completed_count,
+                    "total_lessons": total_lessons,
+                    "completion_pct": pct,
+                },
+                "badge": {
+                    "badge_title": f"{m.name} Competence",
+                    "status": "EARNED" if (total_lessons > 0 and completed_count >= total_lessons) else "NOT_EARNED",
+                }
+            })
+
+        return {
+            "modules": catalog,
+            "total_items": total_items,
+            "domains": domains_list,
+            "has_more": (offset + len(catalog)) < total_items,
+            "limit": limit,
+            "offset": offset,
+        }
 
     @classmethod
     async def get_module_by_slug_or_id(

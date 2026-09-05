@@ -404,47 +404,38 @@ async def delete_unit(
 @router.get("/curriculum/modules", summary="Get catalog of published modules with learner progress")
 async def list_modules(
     request: Request,
+    domain: Optional[str] = None,
+    limit: int = 8,
+    offset: int = 0,
     page: int = 1,
-    page_size: int = 20,
+    page_size: Optional[int] = None,
     db: AsyncSession = Depends(get_db)
 ):
     user_id = get_optional_user_id(request)
-    modules = await CurriculumContentService.get_published_modules(db)
+    actual_limit = page_size if page_size is not None else limit
+    actual_offset = offset if offset > 0 else ((page - 1) * actual_limit)
 
-    total_items = len(modules)
-    total_pages = max(1, (total_items + page_size - 1) // page_size)
-    start_idx = (page - 1) * page_size
-    paged_modules = modules[start_idx : start_idx + page_size]
+    result = await CurriculumContentService.get_catalog_modules_with_stats(
+        db=db,
+        user_id=user_id,
+        domain_slug=domain,
+        limit=actual_limit,
+        offset=actual_offset,
+    )
 
-    catalog = []
-    for m in paged_modules:
-        units = await CurriculumContentService.get_units_for_module(db, m.id)
-        unit_contracts, progress, badge = await ProgressionEngine.evaluate_module_progression(
-            db, m, user_id
-        )
-
-        catalog.append({
-            "id": str(m.id),
-            "slug": m.slug,
-            "title": m.name,
-            "description": m.description or "",
-            "learner_goal": m.learner_goal or f"Master {m.name} with verified application evidence.",
-            "why_this_matters": m.why_this_matters or f"Understanding {m.name} is a foundational financial literacy skill.",
-            "level": m.level or "BEGINNER",
-            "total_units": len(units),
-            "total_lessons": progress.total_lessons,
-            "estimated_hours": m.estimated_hours or 1.5,
-            "progress": progress.model_dump(),
-            "badge": badge.model_dump(),
-        })
-
+    total_pages = max(1, (result["total_items"] + actual_limit - 1) // actual_limit)
     return {
         "schema_version": "1.0",
-        "modules": catalog,
+        "modules": result["modules"],
+        "domains": result["domains"],
+        "selected_domain": domain or "all",
+        "total_items": result["total_items"],
+        "has_more": result["has_more"],
         "page": page,
-        "page_size": page_size,
-        "total_items": total_items,
+        "page_size": actual_limit,
         "total_pages": total_pages,
+        "limit": actual_limit,
+        "offset": actual_offset,
     }
 
 

@@ -85,17 +85,29 @@ class SessionGeneratorService:
                     raise ValueError(f"CANNOT_RESOLVE_ACTIVITY: Activity {expected_act_id} for block {b_id} not found.")
 
                 eval_dict = raw_block.get("evaluation") or {}
+                correct_opt_id = eval_dict.get("correct_option_id") or raw_block.get("correct_option_id")
+                if not correct_opt_id and raw_block.get("options"):
+                    for opt in raw_block["options"]:
+                        if isinstance(opt, dict) and opt.get("is_correct"):
+                            correct_opt_id = opt.get("id")
+                            break
+
+                explanation = (raw_block.get("feedback") or {}).get("explanation") or raw_block.get("explanation")
                 eval_spec = {
-                    "correct_option_id": eval_dict.get("correct_option_id"),
+                    "correct_option_id": correct_opt_id,
                     "correct_value": eval_dict.get("correct_value"),
                     "numeric_tolerance": eval_dict.get("numeric_tolerance", 0.05),
                     "accepted_answers": eval_dict.get("accepted_answers", []),
                     "misconception_map": eval_dict.get("misconception_map", {}),
-                    "explanation": (raw_block.get("feedback") or {}).get("explanation"),
+                    "explanation": explanation,
                 }
 
                 stored_block = StoredBlock(**raw_block)
                 client_payload = LearnerBlockSerializer.serialize(stored_block)
+                # Attach correct_option_id and explanation for practice mode instant feedback
+                client_payload["correct_option_id"] = correct_opt_id
+                if explanation:
+                    client_payload["explanation"] = explanation
 
                 item = LearningSessionItem(
                     id=uuid.uuid4(),
@@ -124,6 +136,21 @@ class SessionGeneratorService:
                 is_interactive = bool(resp_type and resp_type not in ("NONE", ResponseType.NONE))
                 stored_block = StoredBlock(**raw_block)
                 sanitized_payload = LearnerBlockSerializer.serialize(stored_block)
+
+                # Extract correct_option_id for interactive practice blocks
+                block_eval = raw_block.get("evaluation") or {}
+                b_correct_id = block_eval.get("correct_option_id") or raw_block.get("correct_option_id")
+                if not b_correct_id and raw_block.get("options"):
+                    for opt in raw_block["options"]:
+                        if isinstance(opt, dict) and opt.get("is_correct"):
+                            b_correct_id = opt.get("id")
+                            break
+                if b_correct_id:
+                    sanitized_payload["correct_option_id"] = b_correct_id
+                b_expl = (raw_block.get("feedback") or {}).get("explanation") or raw_block.get("explanation")
+                if b_expl:
+                    sanitized_payload["explanation"] = b_expl
+
                 pos = raw_block.get("order_index", idx + 1)
                 title = (
                     raw_block.get("content", {}).get("title")
@@ -139,6 +166,7 @@ class SessionGeneratorService:
                         "activity_type": raw_block.get("activity_type") or "PRACTICE",
                         "interaction_type": resp_type,
                         "is_interactive": True,
+                        "correct_option_id": b_correct_id,
                         "learning_phase": item.learning_phase if item else (raw_block.get("activity_type") or "PRACTICE"),
                         "title": title,
                         "position": pos,
