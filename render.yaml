@@ -17,4 +17,4 @@ services:
       - key: JWT_SECRET
         generateValue: true
       - key: ALLOWED_ORIGINS
-        value: "http://localhost:5173,http://localhost:3000"
+        value: "http://localhost:5173,http://localhost:3000,https://senti-news-finlearn.vercel.app"

@@ -7,7 +7,7 @@ from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.security import verify_jwt_token, validate_origin_and_csrf
+from app.core.security import verify_jwt_token, validate_origin_and_csrf, resolve_admin_context, DEFAULT_ADMIN_USER_ID
 from app.models.curriculum import Domain, World, Series, Module, Unit, UnitConcept
 from app.models.lesson import Lesson, LessonVersion
 from app.schemas.curriculum_contract import (
@@ -62,25 +62,9 @@ DEFAULT_ADMIN_USER_ID = uuid.UUID("b0370776-dcc9-449a-8bbb-b4d0cf9e9494")
 
 
 def require_content_editor(request: Request) -> uuid.UUID:
-    """Enforces CONTENT_EDITOR or SUPER_ADMIN role for curriculum mutations."""
-    auth_header = request.headers.get("authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        if settings.ENVIRONMENT == "development":
-            return DEFAULT_ADMIN_USER_ID
-        raise HTTPException(status_code=401, detail="UNAUTHORIZED")
-    try:
-        token = auth_header.split(" ")[1]
-        payload = verify_jwt_token(token)
-        role = payload.get("role", "")
-        if role not in ("CONTENT_EDITOR", "SUPER_ADMIN"):
-            raise HTTPException(status_code=403, detail="FORBIDDEN_ROLE")
-        return uuid.UUID(payload["sub"])
-    except HTTPException:
-        raise
-    except Exception as e:
-        if settings.ENVIRONMENT == "development":
-            return DEFAULT_ADMIN_USER_ID
-        raise HTTPException(status_code=401, detail=f"INVALID_TOKEN: {str(e)}")
+    """Enforces CONTENT_EDITOR, SUPER_ADMIN, or ADMIN role for curriculum mutations."""
+    actor_id, role = resolve_admin_context(request, ["CONTENT_EDITOR", "SUPER_ADMIN", "ADMIN"])
+    return actor_id
 
 
 # ── Content Authoring & Management Endpoints ─────────────────────────────────

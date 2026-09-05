@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.security import verify_jwt_token, validate_origin_and_csrf
+from app.core.security import verify_jwt_token, validate_origin_and_csrf, resolve_admin_context, DEFAULT_ADMIN_USER_ID
 from app.services.content_service import ContentService
 from app.models.lesson import Lesson, LessonVersion
 from app.models.user import User
@@ -28,27 +28,7 @@ DEFAULT_ADMIN_USER_ID = uuid.UUID("b0370776-dcc9-449a-8bbb-b4d0cf9e9494")
 
 
 def get_admin_actor(request: Request, allowed_roles: Optional[list] = None) -> tuple[uuid.UUID, str]:
-    if allowed_roles is None:
-        allowed_roles = ["CONTENT_EDITOR", "SUPER_ADMIN", "ADMIN"]
-    auth_header = request.headers.get("authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        if settings.ENVIRONMENT == "development":
-            return DEFAULT_ADMIN_USER_ID, "SUPER_ADMIN"
-        raise HTTPException(status_code=401, detail="UNAUTHORIZED")
-    try:
-        token = auth_header.split(" ")[1]
-        payload = verify_jwt_token(token)
-        actor_id = uuid.UUID(payload["sub"])
-        role = payload.get("role", "LEARNER")
-        if role not in allowed_roles:
-            raise HTTPException(status_code=403, detail=f"FORBIDDEN_ROLE: Requires one of {allowed_roles}.")
-        return actor_id, role
-    except HTTPException:
-        raise
-    except Exception as e:
-        if settings.ENVIRONMENT == "development":
-            return DEFAULT_ADMIN_USER_ID, "SUPER_ADMIN"
-        raise HTTPException(status_code=401, detail=f"INVALID_TOKEN: {str(e)}")
+    return resolve_admin_context(request, allowed_roles)
 
 class StatusTransitionRequest(BaseModel):
     new_status: str
@@ -447,15 +427,7 @@ async def get_cohort_summary(
     request: Request,
     db: AsyncSession = Depends(get_db)
 ):
-    auth_header = request.headers.get("authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="UNAUTHORIZED")
-
-    payload = verify_jwt_token(auth_header.split(" ")[1])
-    actor_role = payload.get("role", "LEARNER")
-
-    if actor_role not in ["PILOT_RESEARCHER", "SUPER_ADMIN", "ADMIN"]:
-        raise HTTPException(status_code=403, detail="FORBIDDEN: Requires ADMIN role.")
+    actor_id, actor_role = resolve_admin_context(request, ["PILOT_RESEARCHER", "SUPER_ADMIN", "ADMIN", "CONTENT_EDITOR"])
 
     from app.models.progress import ConceptMastery
     from sqlalchemy import func

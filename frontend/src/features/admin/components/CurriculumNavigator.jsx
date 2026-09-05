@@ -50,12 +50,18 @@ export const CurriculumNavigator = ({
   // Modals for staged creation (No orphan content!)
   const [showAddDomainModal, setShowAddDomainModal] = useState(false);
   const [domainForm, setDomainForm] = useState({ name: '', description: '' });
+  const [isSubmittingDomain, setIsSubmittingDomain] = useState(false);
+  const [domainError, setDomainError] = useState(null);
 
   const [showAddWorldModal, setShowAddWorldModal] = useState(false);
   const [worldForm, setWorldForm] = useState({ domain_id: '', name: '', description: '' });
+  const [isSubmittingWorld, setIsSubmittingWorld] = useState(false);
+  const [worldError, setWorldError] = useState(null);
 
   const [showAddSeriesModal, setShowAddSeriesModal] = useState(false);
   const [seriesForm, setSeriesForm] = useState({ world_id: '', name: '', description: '' });
+  const [isSubmittingSeries, setIsSubmittingSeries] = useState(false);
+  const [seriesError, setSeriesError] = useState(null);
 
   const [showAddModuleModal, setShowAddModuleModal] = useState(false);
   const [moduleForm, setModuleForm] = useState({
@@ -70,6 +76,8 @@ export const CurriculumNavigator = ({
     estimated_hours: 1.5,
     level: 'BEGINNER',
   });
+  const [isSubmittingModule, setIsSubmittingModule] = useState(false);
+  const [moduleError, setModuleError] = useState(null);
 
   const [showAddUnitModal, setShowAddUnitModal] = useState(false);
   const [unitForm, setUnitForm] = useState({
@@ -77,6 +85,8 @@ export const CurriculumNavigator = ({
     name: '',
     description: '',
   });
+  const [isSubmittingUnit, setIsSubmittingUnit] = useState(false);
+  const [unitError, setUnitError] = useState(null);
 
   const [showAddLessonModal, setShowAddLessonModal] = useState(false);
   const [lessonForm, setLessonForm] = useState({
@@ -86,15 +96,19 @@ export const CurriculumNavigator = ({
     level: 'BEGINNER',
     learning_objectives: '',
   });
+  const [isSubmittingLesson, setIsSubmittingLesson] = useState(false);
+  const [lessonError, setLessonError] = useState(null);
 
   // ── Edit Modals ──────────────────────────────────────────────────────────
   const [showEditModuleModal, setShowEditModuleModal] = useState(false);
   const [editModuleTarget, setEditModuleTarget] = useState(null); // { id, name, description, level, estimated_hours, learner_goal, why_this_matters, learning_outcomes }
   const [editModuleForm, setEditModuleForm] = useState({});
+  const [editModuleError, setEditModuleError] = useState(null);
 
   const [showEditUnitModal, setShowEditUnitModal] = useState(false);
   const [editUnitTarget, setEditUnitTarget] = useState(null); // { id, name, description }
   const [editUnitForm, setEditUnitForm] = useState({});
+  const [editUnitError, setEditUnitError] = useState(null);
 
   // ── Delete Confirmation Dialog ────────────────────────────────────────────
   const [deleteDialog, setDeleteDialog] = useState(null); // { type, id, name, onConfirm }
@@ -258,6 +272,7 @@ export const CurriculumNavigator = ({
 
   const handleOpenAddDomain = () => {
     setDomainForm({ name: '', description: '' });
+    setDomainError(null);
     setShowAddDomainModal(true);
   };
 
@@ -267,6 +282,7 @@ export const CurriculumNavigator = ({
       name: '',
       description: '',
     });
+    setWorldError(null);
     setShowAddWorldModal(true);
   };
 
@@ -276,30 +292,42 @@ export const CurriculumNavigator = ({
       name: '',
       description: '',
     });
+    setSeriesError(null);
     setShowAddSeriesModal(true);
   };
 
   const handleConfirmCreateDomain = async () => {
-    if (!domainForm.name.trim()) return;
+    if (!domainForm.name.trim() || isSubmittingDomain) return;
+    setIsSubmittingDomain(true);
+    setDomainError(null);
     try {
-      await apiClient('/api/v1/curriculum/domains', {
+      const res = await apiClient('/api/v1/curriculum/domains', {
         method: 'POST',
         body: JSON.stringify({
           name: domainForm.name.trim(),
           description: domainForm.description.trim(),
         }),
       });
+      if (res?.domain?.id) {
+        setExpandedDomains((prev) => ({ ...prev, [res.domain.id]: true }));
+      }
       if (onRefreshTree) await onRefreshTree();
       setShowAddDomainModal(false);
+      setDomainForm({ name: '', description: '' });
     } catch (err) {
       console.error('Failed to create domain:', err);
+      setDomainError(err?.message || 'Failed to create domain. Please try again.');
+    } finally {
+      setIsSubmittingDomain(false);
     }
   };
 
   const handleConfirmCreateWorld = async () => {
-    if (!worldForm.name.trim() || !worldForm.domain_id) return;
+    if (!worldForm.name.trim() || !worldForm.domain_id || isSubmittingWorld) return;
+    setIsSubmittingWorld(true);
+    setWorldError(null);
     try {
-      await apiClient('/api/v1/curriculum/worlds', {
+      const res = await apiClient('/api/v1/curriculum/worlds', {
         method: 'POST',
         body: JSON.stringify({
           domain_id: worldForm.domain_id,
@@ -307,17 +335,29 @@ export const CurriculumNavigator = ({
           description: worldForm.description.trim(),
         }),
       });
+      if (res?.world?.id) {
+        setExpandedWorlds((prev) => ({ ...prev, [res.world.id]: true }));
+      }
+      if (worldForm.domain_id) {
+        setExpandedDomains((prev) => ({ ...prev, [worldForm.domain_id]: true }));
+      }
       if (onRefreshTree) await onRefreshTree();
       setShowAddWorldModal(false);
+      setWorldForm({ domain_id: '', name: '', description: '' });
     } catch (err) {
       console.error('Failed to create world:', err);
+      setWorldError(err?.message || 'Failed to create world. Please try again.');
+    } finally {
+      setIsSubmittingWorld(false);
     }
   };
 
   const handleConfirmCreateSeries = async () => {
-    if (!seriesForm.name.trim() || !seriesForm.world_id) return;
+    if (!seriesForm.name.trim() || !seriesForm.world_id || isSubmittingSeries) return;
+    setIsSubmittingSeries(true);
+    setSeriesError(null);
     try {
-      await apiClient('/api/v1/curriculum/series', {
+      const res = await apiClient('/api/v1/curriculum/series', {
         method: 'POST',
         body: JSON.stringify({
           world_id: seriesForm.world_id,
@@ -325,10 +365,20 @@ export const CurriculumNavigator = ({
           description: seriesForm.description.trim(),
         }),
       });
+      if (res?.series?.id) {
+        setExpandedSeries((prev) => ({ ...prev, [res.series.id]: true }));
+      }
+      if (seriesForm.world_id) {
+        setExpandedWorlds((prev) => ({ ...prev, [seriesForm.world_id]: true }));
+      }
       if (onRefreshTree) await onRefreshTree();
       setShowAddSeriesModal(false);
+      setSeriesForm({ world_id: '', name: '', description: '' });
     } catch (err) {
       console.error('Failed to create series:', err);
+      setSeriesError(err?.message || 'Failed to create series. Please try again.');
+    } finally {
+      setIsSubmittingSeries(false);
     }
   };
 
@@ -345,6 +395,7 @@ export const CurriculumNavigator = ({
       estimated_hours: 1.5,
       level: 'BEGINNER',
     });
+    setModuleError(null);
     setShowAddModuleModal(true);
   };
 
@@ -354,6 +405,7 @@ export const CurriculumNavigator = ({
       name: '',
       description: '',
     });
+    setUnitError(null);
     setShowAddUnitModal(true);
   };
 
@@ -365,47 +417,89 @@ export const CurriculumNavigator = ({
       level: 'BEGINNER',
       learning_objectives: '',
     });
+    setLessonError(null);
     setShowAddLessonModal(true);
   };
 
   const handleConfirmCreateModule = async () => {
-    if (!moduleForm.name.trim() || !onCreateModule) return;
-    const outcomesArray = moduleForm.learning_outcomes
-      ? moduleForm.learning_outcomes.split('\n').map((s) => s.trim()).filter(Boolean)
-      : [];
-    await onCreateModule({
-      series_id: moduleForm.series_id || undefined,
-      name: moduleForm.name.trim(),
-      slug: moduleForm.slug.trim() || undefined,
-      description: moduleForm.description.trim(),
-      learner_goal: moduleForm.learner_goal.trim() || `Master ${moduleForm.name.trim()}`,
-      why_this_matters: moduleForm.why_this_matters.trim() || `Foundational competency in ${moduleForm.name.trim()}`,
-      learning_outcomes: outcomesArray.length > 0 ? outcomesArray : [`Understand ${moduleForm.name.trim()}`],
-      completion_criteria: moduleForm.completion_criteria.trim() || 'Complete all unit milestones with >= 80%',
-      estimated_hours: Number(moduleForm.estimated_hours) || 1.5,
-      level: moduleForm.level,
-    });
-    setShowAddModuleModal(false);
+    if (!moduleForm.name.trim() || isSubmittingModule || !onCreateModule) return;
+    setIsSubmittingModule(true);
+    setModuleError(null);
+    try {
+      const outcomesArray = moduleForm.learning_outcomes
+        ? moduleForm.learning_outcomes.split('\n').map((s) => s.trim()).filter(Boolean)
+        : [];
+      const res = await onCreateModule({
+        series_id: moduleForm.series_id || undefined,
+        name: moduleForm.name.trim(),
+        slug: moduleForm.slug.trim() || undefined,
+        description: moduleForm.description.trim(),
+        learner_goal: moduleForm.learner_goal.trim() || `Master ${moduleForm.name.trim()}`,
+        why_this_matters: moduleForm.why_this_matters.trim() || `Foundational competency in ${moduleForm.name.trim()}`,
+        learning_outcomes: outcomesArray.length > 0 ? outcomesArray : [`Understand ${moduleForm.name.trim()}`],
+        completion_criteria: moduleForm.completion_criteria.trim() || 'Complete all unit milestones with >= 80%',
+        estimated_hours: Number(moduleForm.estimated_hours) || 1.5,
+        level: moduleForm.level,
+      });
+      const modId = res?.module?.id || res?.id;
+      if (modId) {
+        setExpandedModules((prev) => ({ ...prev, [modId]: true }));
+      }
+      setShowAddModuleModal(false);
+    } catch (err) {
+      console.error('Failed to create module:', err);
+      setModuleError(err?.message || 'Failed to create module. Please try again.');
+    } finally {
+      setIsSubmittingModule(false);
+    }
   };
 
   const handleConfirmCreateUnit = async () => {
-    if (!unitForm.name.trim() || !unitForm.module_id || !onCreateUnit) return;
-    await onCreateUnit(unitForm.module_id, unitForm.name.trim(), unitForm.description.trim());
-    setShowAddUnitModal(false);
+    if (!unitForm.name.trim() || !unitForm.module_id || isSubmittingUnit || !onCreateUnit) return;
+    setIsSubmittingUnit(true);
+    setUnitError(null);
+    try {
+      const res = await onCreateUnit(unitForm.module_id, unitForm.name.trim(), unitForm.description.trim());
+      const uId = res?.unit?.id || res?.id;
+      if (uId) {
+        setExpandedUnits((prev) => ({ ...prev, [uId]: true }));
+      }
+      if (unitForm.module_id) {
+        setExpandedModules((prev) => ({ ...prev, [unitForm.module_id]: true }));
+      }
+      setShowAddUnitModal(false);
+    } catch (err) {
+      console.error('Failed to create unit:', err);
+      setUnitError(err?.message || 'Failed to create unit. Please try again.');
+    } finally {
+      setIsSubmittingUnit(false);
+    }
   };
 
   const handleConfirmCreateLesson = async () => {
-    if (!lessonForm.title.trim() || !lessonForm.unit_id || !onCreateLesson) return;
-    const objectivesArray = lessonForm.learning_objectives
-      ? lessonForm.learning_objectives.split('\n').map((s) => s.trim()).filter(Boolean)
-      : [`Understand ${lessonForm.title.trim()}`];
-    await onCreateLesson(lessonForm.unit_id, {
-      title: lessonForm.title.trim(),
-      durationMinutes: Number(lessonForm.duration_minutes) || 5,
-      level: lessonForm.level,
-      learningObjectives: objectivesArray,
-    });
-    setShowAddLessonModal(false);
+    if (!lessonForm.title.trim() || !lessonForm.unit_id || isSubmittingLesson || !onCreateLesson) return;
+    setIsSubmittingLesson(true);
+    setLessonError(null);
+    try {
+      const objectivesArray = lessonForm.learning_objectives
+        ? lessonForm.learning_objectives.split('\n').map((s) => s.trim()).filter(Boolean)
+        : [`Understand ${lessonForm.title.trim()}`];
+      await onCreateLesson(lessonForm.unit_id, {
+        title: lessonForm.title.trim(),
+        durationMinutes: Number(lessonForm.duration_minutes) || 5,
+        level: lessonForm.level,
+        learningObjectives: objectivesArray,
+      });
+      if (lessonForm.unit_id) {
+        setExpandedUnits((prev) => ({ ...prev, [lessonForm.unit_id]: true }));
+      }
+      setShowAddLessonModal(false);
+    } catch (err) {
+      console.error('Failed to create lesson:', err);
+      setLessonError(err?.message || 'Failed to create lesson draft. Please try again.');
+    } finally {
+      setIsSubmittingLesson(false);
+    }
   };
 
   // ── Edit Handlers ──────────────────────────────────────────────────────────
@@ -423,12 +517,14 @@ export const CurriculumNavigator = ({
         ? mod.learning_outcomes.join('\n')
         : (mod.learning_outcomes || ''),
     });
+    setEditModuleError(null);
     setShowEditModuleModal(true);
   };
 
   const handleConfirmEditModule = async () => {
-    if (!editModuleTarget?.id || !editModuleForm.name.trim()) return;
+    if (!editModuleTarget?.id || !editModuleForm.name.trim() || isSavingEdit) return;
     setIsSavingEdit(true);
+    setEditModuleError(null);
     try {
       const outcomesArray = editModuleForm.learning_outcomes
         ? editModuleForm.learning_outcomes.split('\n').map((s) => s.trim()).filter(Boolean)
@@ -449,6 +545,7 @@ export const CurriculumNavigator = ({
       setShowEditModuleModal(false);
     } catch (err) {
       console.error('Failed to edit module:', err);
+      setEditModuleError(err?.message || 'Failed to update module. Please try again.');
     } finally {
       setIsSavingEdit(false);
     }
@@ -461,12 +558,14 @@ export const CurriculumNavigator = ({
       name: unit.name || '',
       description: unit.description || '',
     });
+    setEditUnitError(null);
     setShowEditUnitModal(true);
   };
 
   const handleConfirmEditUnit = async () => {
-    if (!editUnitTarget?.id || !editUnitForm.name.trim()) return;
+    if (!editUnitTarget?.id || !editUnitForm.name.trim() || isSavingEdit) return;
     setIsSavingEdit(true);
+    setEditUnitError(null);
     try {
       await apiClient(`/api/v1/curriculum/units/${editUnitTarget.id}`, {
         method: 'PATCH',
@@ -479,6 +578,7 @@ export const CurriculumNavigator = ({
       setShowEditUnitModal(false);
     } catch (err) {
       console.error('Failed to edit unit:', err);
+      setEditUnitError(err?.message || 'Failed to update unit. Please try again.');
     } finally {
       setIsSavingEdit(false);
     }
@@ -966,6 +1066,13 @@ export const CurriculumNavigator = ({
               <span>Edit Module — {editModuleTarget.name}</span>
             </h3>
 
+            {editModuleError && (
+              <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700 font-medium flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                <div className="flex-1 text-[11px] leading-relaxed">{editModuleError}</div>
+              </div>
+            )}
+
             <div className="space-y-3 text-xs">
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -1046,8 +1153,12 @@ export const CurriculumNavigator = ({
 
             <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
               <button
-                onClick={() => setShowEditModuleModal(false)}
-                className="px-3 py-1.5 rounded text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                onClick={() => {
+                  setShowEditModuleModal(false);
+                  setEditModuleError(null);
+                }}
+                disabled={isSavingEdit}
+                className="px-3 py-1.5 rounded text-xs font-semibold text-slate-600 hover:bg-slate-100 disabled:opacity-50"
               >
                 Cancel
               </button>
@@ -1057,7 +1168,7 @@ export const CurriculumNavigator = ({
                 className="px-4 py-1.5 rounded text-xs font-bold bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white shadow-sm flex items-center gap-1.5"
               >
                 {isSavingEdit && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                Save Changes
+                <span>{isSavingEdit ? 'Saving...' : 'Save Changes'}</span>
               </button>
             </div>
           </div>
@@ -1073,13 +1184,23 @@ export const CurriculumNavigator = ({
               <span>Edit Unit — {editUnitTarget.name}</span>
             </h3>
 
+            {editUnitError && (
+              <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700 font-medium flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                <div className="flex-1 text-[11px] leading-relaxed">{editUnitError}</div>
+              </div>
+            )}
+
             <div className="space-y-3 text-xs">
               <div>
                 <label className="font-semibold text-slate-600">Unit Name *</label>
                 <input
                   type="text"
                   value={editUnitForm.name}
-                  onChange={(e) => setEditUnitForm({ ...editUnitForm, name: e.target.value })}
+                  onChange={(e) => {
+                    setEditUnitForm({ ...editUnitForm, name: e.target.value });
+                    if (editUnitError) setEditUnitError(null);
+                  }}
                   className="w-full mt-1 p-2 border border-slate-200 rounded focus:outline-none focus:border-blue-500"
                 />
               </div>
@@ -1096,8 +1217,12 @@ export const CurriculumNavigator = ({
 
             <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
               <button
-                onClick={() => setShowEditUnitModal(false)}
-                className="px-3 py-1.5 rounded text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                onClick={() => {
+                  setShowEditUnitModal(false);
+                  setEditUnitError(null);
+                }}
+                disabled={isSavingEdit}
+                className="px-3 py-1.5 rounded text-xs font-semibold text-slate-600 hover:bg-slate-100 disabled:opacity-50"
               >
                 Cancel
               </button>
@@ -1107,7 +1232,7 @@ export const CurriculumNavigator = ({
                 className="px-3.5 py-1.5 rounded text-xs font-bold bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white shadow-sm flex items-center gap-1.5"
               >
                 {isSavingEdit && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                Save Changes
+                <span>{isSavingEdit ? 'Saving...' : 'Save Changes'}</span>
               </button>
             </div>
           </div>
@@ -1123,13 +1248,23 @@ export const CurriculumNavigator = ({
               <span>Create New Curriculum Module</span>
             </h3>
 
+            {moduleError && (
+              <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+                <span>{moduleError}</span>
+              </div>
+            )}
+
             <div className="space-y-3 text-xs">
               {availableSeries.length > 0 && (
                 <div>
                   <label className="font-semibold text-slate-600">Parent Hierarchy Series</label>
                   <select
                     value={moduleForm.series_id}
-                    onChange={(e) => setModuleForm({ ...moduleForm, series_id: e.target.value })}
+                    onChange={(e) => {
+                      setModuleForm({ ...moduleForm, series_id: e.target.value });
+                      setModuleError(null);
+                    }}
                     className="w-full mt-1 p-2 border border-slate-200 rounded focus:outline-none focus:border-blue-500"
                   >
                     {availableSeries.map((s) => (
@@ -1148,7 +1283,10 @@ export const CurriculumNavigator = ({
                     type="text"
                     placeholder="e.g. Financial Statements"
                     value={moduleForm.name}
-                    onChange={(e) => setModuleForm({ ...moduleForm, name: e.target.value })}
+                    onChange={(e) => {
+                      setModuleForm({ ...moduleForm, name: e.target.value });
+                      setModuleError(null);
+                    }}
                     className="w-full mt-1 p-2 border border-slate-200 rounded focus:outline-none focus:border-blue-500"
                   />
                 </div>
@@ -1158,7 +1296,10 @@ export const CurriculumNavigator = ({
                     type="text"
                     placeholder="e.g. financial-statements"
                     value={moduleForm.slug}
-                    onChange={(e) => setModuleForm({ ...moduleForm, slug: e.target.value })}
+                    onChange={(e) => {
+                      setModuleForm({ ...moduleForm, slug: e.target.value });
+                      setModuleError(null);
+                    }}
                     className="w-full mt-1 p-2 border border-slate-200 rounded focus:outline-none focus:border-blue-500"
                   />
                 </div>
@@ -1170,7 +1311,10 @@ export const CurriculumNavigator = ({
                   rows={2}
                   placeholder="Comprehensive breakdown of financial statements..."
                   value={moduleForm.description}
-                  onChange={(e) => setModuleForm({ ...moduleForm, description: e.target.value })}
+                  onChange={(e) => {
+                    setModuleForm({ ...moduleForm, description: e.target.value });
+                    setModuleError(null);
+                  }}
                   className="w-full mt-1 p-2 border border-slate-200 rounded focus:outline-none focus:border-blue-500 resize-none"
                 />
               </div>
@@ -1181,7 +1325,10 @@ export const CurriculumNavigator = ({
                   type="text"
                   placeholder="e.g. Master three-statement modeling and income statement analysis."
                   value={moduleForm.learner_goal}
-                  onChange={(e) => setModuleForm({ ...moduleForm, learner_goal: e.target.value })}
+                  onChange={(e) => {
+                    setModuleForm({ ...moduleForm, learner_goal: e.target.value });
+                    setModuleError(null);
+                  }}
                   className="w-full mt-1 p-2 border border-slate-200 rounded focus:outline-none focus:border-blue-500"
                 />
               </div>
@@ -1192,7 +1339,10 @@ export const CurriculumNavigator = ({
                   type="text"
                   placeholder="e.g. Financial statements form the foundation of equity research and corporate finance."
                   value={moduleForm.why_this_matters}
-                  onChange={(e) => setModuleForm({ ...moduleForm, why_this_matters: e.target.value })}
+                  onChange={(e) => {
+                    setModuleForm({ ...moduleForm, why_this_matters: e.target.value });
+                    setModuleError(null);
+                  }}
                   className="w-full mt-1 p-2 border border-slate-200 rounded focus:outline-none focus:border-blue-500"
                 />
               </div>
@@ -1203,7 +1353,10 @@ export const CurriculumNavigator = ({
                   rows={2}
                   placeholder="Identify revenue vs cost of goods sold&#10;Compute operating margins&#10;Evaluate cash flow reconciliation"
                   value={moduleForm.learning_outcomes}
-                  onChange={(e) => setModuleForm({ ...moduleForm, learning_outcomes: e.target.value })}
+                  onChange={(e) => {
+                    setModuleForm({ ...moduleForm, learning_outcomes: e.target.value });
+                    setModuleError(null);
+                  }}
                   className="w-full mt-1 p-2 border border-slate-200 rounded focus:outline-none focus:border-blue-500 resize-none"
                 />
               </div>
@@ -1216,7 +1369,10 @@ export const CurriculumNavigator = ({
                     step="0.5"
                     min="0.5"
                     value={moduleForm.estimated_hours}
-                    onChange={(e) => setModuleForm({ ...moduleForm, estimated_hours: e.target.value })}
+                    onChange={(e) => {
+                      setModuleForm({ ...moduleForm, estimated_hours: e.target.value });
+                      setModuleError(null);
+                    }}
                     className="w-full mt-1 p-2 border border-slate-200 rounded focus:outline-none focus:border-blue-500"
                   />
                 </div>
@@ -1224,7 +1380,10 @@ export const CurriculumNavigator = ({
                   <label className="font-semibold text-slate-600">Difficulty Level</label>
                   <select
                     value={moduleForm.level}
-                    onChange={(e) => setModuleForm({ ...moduleForm, level: e.target.value })}
+                    onChange={(e) => {
+                      setModuleForm({ ...moduleForm, level: e.target.value });
+                      setModuleError(null);
+                    }}
                     className="w-full mt-1 p-2 border border-slate-200 rounded focus:outline-none focus:border-blue-500"
                   >
                     <option value="BEGINNER">BEGINNER</option>
@@ -1237,17 +1396,21 @@ export const CurriculumNavigator = ({
 
             <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
               <button
-                onClick={() => setShowAddModuleModal(false)}
+                onClick={() => {
+                  setShowAddModuleModal(false);
+                  setModuleError(null);
+                }}
                 className="px-3 py-1.5 rounded text-xs font-semibold text-slate-600 hover:bg-slate-100"
               >
                 Cancel
               </button>
               <button
                 onClick={handleConfirmCreateModule}
-                disabled={!moduleForm.name.trim()}
-                className="px-4 py-1.5 rounded text-xs font-bold bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white shadow-sm"
+                disabled={!moduleForm.name.trim() || isSubmittingModule}
+                className="px-4 py-1.5 rounded text-xs font-bold bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white shadow-sm flex items-center gap-1.5"
               >
-                Create Module
+                {isSubmittingModule && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                <span>{isSubmittingModule ? 'Creating...' : 'Create Module'}</span>
               </button>
             </div>
           </div>
@@ -1263,12 +1426,22 @@ export const CurriculumNavigator = ({
               <span>Create New Unit</span>
             </h3>
 
+            {unitError && (
+              <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+                <span>{unitError}</span>
+              </div>
+            )}
+
             <div className="space-y-3 text-xs">
               <div>
                 <label className="font-semibold text-slate-600">Target Module</label>
                 <select
                   value={unitForm.module_id}
-                  onChange={(e) => setUnitForm({ ...unitForm, module_id: e.target.value })}
+                  onChange={(e) => {
+                    setUnitForm({ ...unitForm, module_id: e.target.value });
+                    setUnitError(null);
+                  }}
                   className="w-full mt-1 p-2 border border-slate-200 rounded focus:outline-none focus:border-blue-500"
                 >
                   {availableModules.map((m) => (
@@ -1285,7 +1458,10 @@ export const CurriculumNavigator = ({
                   type="text"
                   placeholder="e.g. Income Statement"
                   value={unitForm.name}
-                  onChange={(e) => setUnitForm({ ...unitForm, name: e.target.value })}
+                  onChange={(e) => {
+                    setUnitForm({ ...unitForm, name: e.target.value });
+                    setUnitError(null);
+                  }}
                   className="w-full mt-1 p-2 border border-slate-200 rounded focus:outline-none focus:border-blue-500"
                 />
               </div>
@@ -1296,7 +1472,10 @@ export const CurriculumNavigator = ({
                   rows={2}
                   placeholder="Optional unit description..."
                   value={unitForm.description}
-                  onChange={(e) => setUnitForm({ ...unitForm, description: e.target.value })}
+                  onChange={(e) => {
+                    setUnitForm({ ...unitForm, description: e.target.value });
+                    setUnitError(null);
+                  }}
                   className="w-full mt-1 p-2 border border-slate-200 rounded focus:outline-none focus:border-blue-500 resize-none"
                 />
               </div>
@@ -1304,17 +1483,21 @@ export const CurriculumNavigator = ({
 
             <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
               <button
-                onClick={() => setShowAddUnitModal(false)}
+                onClick={() => {
+                  setShowAddUnitModal(false);
+                  setUnitError(null);
+                }}
                 className="px-3 py-1.5 rounded text-xs font-semibold text-slate-600 hover:bg-slate-100"
               >
                 Cancel
               </button>
               <button
                 onClick={handleConfirmCreateUnit}
-                disabled={!unitForm.name.trim() || !unitForm.module_id}
-                className="px-3.5 py-1.5 rounded text-xs font-bold bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white shadow-sm"
+                disabled={!unitForm.name.trim() || !unitForm.module_id || isSubmittingUnit}
+                className="px-3.5 py-1.5 rounded text-xs font-bold bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white shadow-sm flex items-center gap-1.5"
               >
-                Create Unit
+                {isSubmittingUnit && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                <span>{isSubmittingUnit ? 'Creating...' : 'Create Unit'}</span>
               </button>
             </div>
           </div>
@@ -1330,12 +1513,22 @@ export const CurriculumNavigator = ({
               <span>Create New Lesson</span>
             </h3>
 
+            {lessonError && (
+              <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+                <span>{lessonError}</span>
+              </div>
+            )}
+
             <div className="space-y-3 text-xs">
               <div>
                 <label className="font-semibold text-slate-600">Target Unit</label>
                 <select
                   value={lessonForm.unit_id}
-                  onChange={(e) => setLessonForm({ ...lessonForm, unit_id: e.target.value })}
+                  onChange={(e) => {
+                    setLessonForm({ ...lessonForm, unit_id: e.target.value });
+                    setLessonError(null);
+                  }}
                   className="w-full mt-1 p-2 border border-slate-200 rounded focus:outline-none focus:border-blue-500"
                 >
                   {availableUnits.map((u) => (
@@ -1352,7 +1545,10 @@ export const CurriculumNavigator = ({
                   type="text"
                   placeholder="e.g. Revenue & Top-Line Recognition"
                   value={lessonForm.title}
-                  onChange={(e) => setLessonForm({ ...lessonForm, title: e.target.value })}
+                  onChange={(e) => {
+                    setLessonForm({ ...lessonForm, title: e.target.value });
+                    setLessonError(null);
+                  }}
                   className="w-full mt-1 p-2 border border-slate-200 rounded focus:outline-none focus:border-blue-500"
                 />
               </div>
@@ -1364,7 +1560,10 @@ export const CurriculumNavigator = ({
                     type="number"
                     min="1"
                     value={lessonForm.duration_minutes}
-                    onChange={(e) => setLessonForm({ ...lessonForm, duration_minutes: e.target.value })}
+                    onChange={(e) => {
+                      setLessonForm({ ...lessonForm, duration_minutes: e.target.value });
+                      setLessonError(null);
+                    }}
                     className="w-full mt-1 p-2 border border-slate-200 rounded focus:outline-none focus:border-blue-500"
                   />
                 </div>
@@ -1372,7 +1571,10 @@ export const CurriculumNavigator = ({
                   <label className="font-semibold text-slate-600">Level</label>
                   <select
                     value={lessonForm.level}
-                    onChange={(e) => setLessonForm({ ...lessonForm, level: e.target.value })}
+                    onChange={(e) => {
+                      setLessonForm({ ...lessonForm, level: e.target.value });
+                      setLessonError(null);
+                    }}
                     className="w-full mt-1 p-2 border border-slate-200 rounded focus:outline-none focus:border-blue-500"
                   >
                     <option value="BEGINNER">BEGINNER</option>
@@ -1388,7 +1590,10 @@ export const CurriculumNavigator = ({
                   rows={2}
                   placeholder="Understand gross vs net revenue&#10;Identify ASC 606 revenue recognition steps"
                   value={lessonForm.learning_objectives}
-                  onChange={(e) => setLessonForm({ ...lessonForm, learning_objectives: e.target.value })}
+                  onChange={(e) => {
+                    setLessonForm({ ...lessonForm, learning_objectives: e.target.value });
+                    setLessonError(null);
+                  }}
                   className="w-full mt-1 p-2 border border-slate-200 rounded focus:outline-none focus:border-blue-500 resize-none"
                 />
               </div>
@@ -1396,17 +1601,21 @@ export const CurriculumNavigator = ({
 
             <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
               <button
-                onClick={() => setShowAddLessonModal(false)}
+                onClick={() => {
+                  setShowAddLessonModal(false);
+                  setLessonError(null);
+                }}
                 className="px-3 py-1.5 rounded text-xs font-semibold text-slate-600 hover:bg-slate-100"
               >
                 Cancel
               </button>
               <button
                 onClick={handleConfirmCreateLesson}
-                disabled={!lessonForm.title.trim() || !lessonForm.unit_id}
-                className="px-3.5 py-1.5 rounded text-xs font-bold bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white shadow-sm"
+                disabled={!lessonForm.title.trim() || !lessonForm.unit_id || isSubmittingLesson}
+                className="px-3.5 py-1.5 rounded text-xs font-bold bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white shadow-sm flex items-center gap-1.5"
               >
-                Create Lesson Draft
+                {isSubmittingLesson && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                <span>{isSubmittingLesson ? 'Creating...' : 'Create Lesson Draft'}</span>
               </button>
             </div>
           </div>
@@ -1422,6 +1631,13 @@ export const CurriculumNavigator = ({
               <span>Create New Domain</span>
             </h3>
 
+            {domainError && (
+              <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+                <span>{domainError}</span>
+              </div>
+            )}
+
             <div className="space-y-3 text-xs">
               <div>
                 <label className="font-semibold text-slate-600">Domain Name *</label>
@@ -1429,7 +1645,10 @@ export const CurriculumNavigator = ({
                   type="text"
                   placeholder="e.g. Technical Analysis, Macroeconomics"
                   value={domainForm.name}
-                  onChange={(e) => setDomainForm({ ...domainForm, name: e.target.value })}
+                  onChange={(e) => {
+                    setDomainForm({ ...domainForm, name: e.target.value });
+                    setDomainError(null);
+                  }}
                   className="w-full mt-1 p-2 border border-slate-200 rounded focus:outline-none focus:border-indigo-500"
                 />
               </div>
@@ -1439,7 +1658,10 @@ export const CurriculumNavigator = ({
                   rows={2}
                   placeholder="High-level subject description..."
                   value={domainForm.description}
-                  onChange={(e) => setDomainForm({ ...domainForm, description: e.target.value })}
+                  onChange={(e) => {
+                    setDomainForm({ ...domainForm, description: e.target.value });
+                    setDomainError(null);
+                  }}
                   className="w-full mt-1 p-2 border border-slate-200 rounded focus:outline-none focus:border-indigo-500 resize-none"
                 />
               </div>
@@ -1447,17 +1669,21 @@ export const CurriculumNavigator = ({
 
             <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
               <button
-                onClick={() => setShowAddDomainModal(false)}
+                onClick={() => {
+                  setShowAddDomainModal(false);
+                  setDomainError(null);
+                }}
                 className="px-3 py-1.5 rounded text-xs font-semibold text-slate-600 hover:bg-slate-100"
               >
                 Cancel
               </button>
               <button
                 onClick={handleConfirmCreateDomain}
-                disabled={!domainForm.name.trim()}
-                className="px-3.5 py-1.5 rounded text-xs font-bold bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white shadow-sm"
+                disabled={!domainForm.name.trim() || isSubmittingDomain}
+                className="px-3.5 py-1.5 rounded text-xs font-bold bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white shadow-sm flex items-center gap-1.5"
               >
-                Create Domain
+                {isSubmittingDomain && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                <span>{isSubmittingDomain ? 'Creating...' : 'Create Domain'}</span>
               </button>
             </div>
           </div>
@@ -1473,12 +1699,22 @@ export const CurriculumNavigator = ({
               <span>Create New World</span>
             </h3>
 
+            {worldError && (
+              <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+                <span>{worldError}</span>
+              </div>
+            )}
+
             <div className="space-y-3 text-xs">
               <div>
                 <label className="font-semibold text-slate-600">Parent Domain *</label>
                 <select
                   value={worldForm.domain_id}
-                  onChange={(e) => setWorldForm({ ...worldForm, domain_id: e.target.value })}
+                  onChange={(e) => {
+                    setWorldForm({ ...worldForm, domain_id: e.target.value });
+                    setWorldError(null);
+                  }}
                   className="w-full mt-1 p-2 border border-slate-200 rounded focus:outline-none focus:border-sky-500"
                 >
                   {availableDomains.map((d) => (
@@ -1494,7 +1730,10 @@ export const CurriculumNavigator = ({
                   type="text"
                   placeholder="e.g. Trading Foundations, Market Microstructure"
                   value={worldForm.name}
-                  onChange={(e) => setWorldForm({ ...worldForm, name: e.target.value })}
+                  onChange={(e) => {
+                    setWorldForm({ ...worldForm, name: e.target.value });
+                    setWorldError(null);
+                  }}
                   className="w-full mt-1 p-2 border border-slate-200 rounded focus:outline-none focus:border-sky-500"
                 />
               </div>
@@ -1504,7 +1743,10 @@ export const CurriculumNavigator = ({
                   rows={2}
                   placeholder="Thematic learning world description..."
                   value={worldForm.description}
-                  onChange={(e) => setWorldForm({ ...worldForm, description: e.target.value })}
+                  onChange={(e) => {
+                    setWorldForm({ ...worldForm, description: e.target.value });
+                    setWorldError(null);
+                  }}
                   className="w-full mt-1 p-2 border border-slate-200 rounded focus:outline-none focus:border-sky-500 resize-none"
                 />
               </div>
@@ -1512,17 +1754,21 @@ export const CurriculumNavigator = ({
 
             <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
               <button
-                onClick={() => setShowAddWorldModal(false)}
+                onClick={() => {
+                  setShowAddWorldModal(false);
+                  setWorldError(null);
+                }}
                 className="px-3 py-1.5 rounded text-xs font-semibold text-slate-600 hover:bg-slate-100"
               >
                 Cancel
               </button>
               <button
                 onClick={handleConfirmCreateWorld}
-                disabled={!worldForm.name.trim() || !worldForm.domain_id}
-                className="px-3.5 py-1.5 rounded text-xs font-bold bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white shadow-sm"
+                disabled={!worldForm.name.trim() || !worldForm.domain_id || isSubmittingWorld}
+                className="px-3.5 py-1.5 rounded text-xs font-bold bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white shadow-sm flex items-center gap-1.5"
               >
-                Create World
+                {isSubmittingWorld && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                <span>{isSubmittingWorld ? 'Creating...' : 'Create World'}</span>
               </button>
             </div>
           </div>
@@ -1538,12 +1784,22 @@ export const CurriculumNavigator = ({
               <span>Create New Series</span>
             </h3>
 
+            {seriesError && (
+              <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+                <span>{seriesError}</span>
+              </div>
+            )}
+
             <div className="space-y-3 text-xs">
               <div>
                 <label className="font-semibold text-slate-600">Parent World *</label>
                 <select
                   value={seriesForm.world_id}
-                  onChange={(e) => setSeriesForm({ ...seriesForm, world_id: e.target.value })}
+                  onChange={(e) => {
+                    setSeriesForm({ ...seriesForm, world_id: e.target.value });
+                    setSeriesError(null);
+                  }}
                   className="w-full mt-1 p-2 border border-slate-200 rounded focus:outline-none focus:border-emerald-500"
                 >
                   {availableWorlds.map((w) => (
@@ -1559,7 +1815,10 @@ export const CurriculumNavigator = ({
                   type="text"
                   placeholder="e.g. Core Curriculum, Advanced Patterns"
                   value={seriesForm.name}
-                  onChange={(e) => setSeriesForm({ ...seriesForm, name: e.target.value })}
+                  onChange={(e) => {
+                    setSeriesForm({ ...seriesForm, name: e.target.value });
+                    setSeriesError(null);
+                  }}
                   className="w-full mt-1 p-2 border border-slate-200 rounded focus:outline-none focus:border-emerald-500"
                 />
               </div>
@@ -1569,7 +1828,10 @@ export const CurriculumNavigator = ({
                   rows={2}
                   placeholder="Series / track collection description..."
                   value={seriesForm.description}
-                  onChange={(e) => setSeriesForm({ ...seriesForm, description: e.target.value })}
+                  onChange={(e) => {
+                    setSeriesForm({ ...seriesForm, description: e.target.value });
+                    setSeriesError(null);
+                  }}
                   className="w-full mt-1 p-2 border border-slate-200 rounded focus:outline-none focus:border-emerald-500 resize-none"
                 />
               </div>
@@ -1577,17 +1839,21 @@ export const CurriculumNavigator = ({
 
             <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
               <button
-                onClick={() => setShowAddSeriesModal(false)}
+                onClick={() => {
+                  setShowAddSeriesModal(false);
+                  setSeriesError(null);
+                }}
                 className="px-3 py-1.5 rounded text-xs font-semibold text-slate-600 hover:bg-slate-100"
               >
                 Cancel
               </button>
               <button
                 onClick={handleConfirmCreateSeries}
-                disabled={!seriesForm.name.trim() || !seriesForm.world_id}
-                className="px-3.5 py-1.5 rounded text-xs font-bold bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white shadow-sm"
+                disabled={!seriesForm.name.trim() || !seriesForm.world_id || isSubmittingSeries}
+                className="px-3.5 py-1.5 rounded text-xs font-bold bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white shadow-sm flex items-center gap-1.5"
               >
-                Create Series
+                {isSubmittingSeries && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                <span>{isSubmittingSeries ? 'Creating...' : 'Create Series'}</span>
               </button>
             </div>
           </div>

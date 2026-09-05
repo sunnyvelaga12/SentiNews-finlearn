@@ -40,17 +40,24 @@ def validate_csrf_origin(request: Request) -> None:
         return
 
     allowed = list(settings.cors_origins) + ["http://testserver", "http://localhost", "http://127.0.0.1"]
-    
+    import re
+
     if origin:
         normalized_origin = origin.rstrip("/")
-        if not any(normalized_origin == a.rstrip("/") or normalized_origin.startswith(a.rstrip("/")) for a in allowed):
+        is_allowed = any(normalized_origin == a.rstrip("/") or normalized_origin.startswith(a.rstrip("/")) for a in allowed)
+        if not is_allowed and re.search(r"^https://([a-zA-Z0-9_-]+\.)*vercel\.app", normalized_origin):
+            is_allowed = True
+        if not is_allowed:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Cross-origin request rejected: invalid origin header",
             )
     elif referer:
         normalized_ref = referer.rstrip("/")
-        if not any(normalized_ref.startswith(a.rstrip("/")) for a in allowed):
+        is_allowed = any(normalized_ref.startswith(a.rstrip("/")) for a in allowed)
+        if not is_allowed and re.search(r"^https://([a-zA-Z0-9_-]+\.)*vercel\.app", normalized_ref):
+            is_allowed = True
+        if not is_allowed:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Cross-origin request rejected: invalid referer header",

@@ -9,8 +9,8 @@ import { SourceLibrary } from './components/SourceLibrary';
 import { ContentHealthDashboard } from './components/ContentHealthDashboard';
 import { evaluatePedagogicalQuality } from './utils/pedagogicalRules';
 import { generateUUID, createBlock } from './utils/blockRegistry';
-import { apiClient } from '../../services/apiClient';
-import { Play, Edit3, AlertOctagon, } from 'lucide-react';
+import { apiClient, setAdminRole } from '../../services/apiClient';
+import { Play, Edit3, AlertOctagon, BookOpen, Sparkles } from 'lucide-react';
 export const AdminStudioPage = () => {
     // Mode: EDIT vs PREVIEW (dedicated mode switch, no visual competition)
     const [mode, setMode] = useState('EDIT');
@@ -44,6 +44,64 @@ export const AdminStudioPage = () => {
     const [surfaceTab, setSurfaceTab] = useState('STUDIO');
     // Role Simulator
     const [userRole, setUserRole] = useState('SUPER_ADMIN');
+
+    // Sync simulated role with API client headers
+    useEffect(() => {
+        setAdminRole(userRole);
+    }, [userRole]);
+
+    // Compute canonical health stats across the full 6-level hierarchy safely
+    const healthStats = useMemo(() => {
+        let totalModules = 0;
+        let totalUnits = 0;
+        let totalLessons = 0;
+        let publishedCount = 0;
+        let draftCount = 0;
+        let inReviewCount = 0;
+
+        for (const d of tree) {
+            for (const w of (d.worlds || [])) {
+                for (const s of (w.series || [])) {
+                    for (const m of (s.modules || [])) {
+                        totalModules++;
+                        for (const u of (m.units || [])) {
+                            totalUnits++;
+                            for (const l of (u.lessons || [])) {
+                                totalLessons++;
+                                const st = (l.status || '').toUpperCase();
+                                if (st === 'PUBLISHED') publishedCount++;
+                                else if (st === 'IN_REVIEW' || st === 'REVIEW') inReviewCount++;
+                                else draftCount++;
+                            }
+                        }
+                    }
+                }
+            }
+            for (const m of (d.modules || [])) {
+                totalModules++;
+                for (const u of (m.units || [])) {
+                    totalUnits++;
+                    for (const l of (u.lessons || [])) {
+                        totalLessons++;
+                        const st = (l.status || '').toUpperCase();
+                        if (st === 'PUBLISHED') publishedCount++;
+                        else if (st === 'IN_REVIEW' || st === 'REVIEW') inReviewCount++;
+                        else draftCount++;
+                    }
+                }
+            }
+        }
+
+        return {
+            totalModules,
+            totalUnits,
+            totalLessons,
+            publishedCount,
+            draftCount,
+            inReviewCount,
+        };
+    }, [tree]);
+
     const fetchCurriculumTree = useCallback(async (targetLessonId = null) => {
         try {
             setIsLoadingTree(true);
@@ -696,8 +754,9 @@ export const AdminStudioPage = () => {
                     });
                     setSurfaceTab('STUDIO');
                 }
-            }}/>) : surfaceTab === 'HEALTH' ? (<ContentHealthDashboard totalLessons={tree.reduce((acc, d) => acc +
-                d.modules.reduce((mAcc, m) => mAcc + m.units.reduce((uAcc, u) => uAcc + u.lessons.length, 0), 0), 0)} publishedCount={2} draftCount={3} inReviewCount={1}/>) : (
+            }}/>) : surfaceTab === 'HEALTH' ? (
+              <ContentHealthDashboard {...healthStats} />
+            ) : (
         /* ── Surface: 3-Column Content Studio (Navigator · Canvas · Inspector) ── */
         <div className="flex flex-1 overflow-hidden">
           {/* Column 1: Curriculum Navigator (Left 280px) */}
@@ -730,7 +789,8 @@ export const AdminStudioPage = () => {
           </div>
 
           {/* Column 2: Pedagogical Canvas (Center Flex) */}
-          <PedagogicalCanvas lessonTitle={lessonTitle} lessonSlug={lessonSlug} durationMinutes={durationMinutes} level={level} learningObjectives={learningObjectives} blocks={blocks} activeBlockIndex={activeBlockIndex} pacingIssues={qualityResult.pacingStreaks} onUpdateMetadata={(updates) => {
+          {selectedLesson ? (
+            <PedagogicalCanvas lessonTitle={lessonTitle} lessonSlug={lessonSlug} durationMinutes={durationMinutes} level={level} learningObjectives={learningObjectives} blocks={blocks} activeBlockIndex={activeBlockIndex} pacingIssues={qualityResult.pacingStreaks} onUpdateMetadata={(updates) => {
                 if (updates.title !== undefined)
                     setLessonTitle(updates.title);
                 if (updates.slug !== undefined)
@@ -746,10 +806,34 @@ export const AdminStudioPage = () => {
                 setActiveBlockIndex(idx);
                 setMode('PREVIEW');
             }}/>
-
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center p-12 text-center bg-slate-50 border-r border-slate-200">
+              <div className="w-16 h-16 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center mb-4 shadow-sm">
+                <BookOpen className="w-8 h-8 text-indigo-600" />
+              </div>
+              <h2 className="text-base font-bold text-slate-800 mb-1">
+                {tree.length === 0 ? 'No Curriculum Created Yet' : 'Select or Create a Lesson'}
+              </h2>
+              <p className="text-xs text-slate-500 max-w-sm mb-4 leading-relaxed">
+                {tree.length === 0
+                  ? 'Start by creating your first Domain in the left sidebar. You can organize your curriculum into Worlds, Series, Modules, Units, and Lessons.'
+                  : 'Choose a lesson from the curriculum navigator on the left to edit its blocks, pedagogy, and governance, or create a new lesson under a unit.'}
+              </p>
+            </div>
+          )}
 
           {/* Column 3: Properties, Quality & Sources Inspector (Right 340px) */}
-          <InspectorAndQualityPanel selectedBlock={blocks[activeBlockIndex]} selectedBlockIndex={activeBlockIndex} qualityResult={qualityResult} onUpdateSelectedBlock={(updated) => handleUpdateBlock(activeBlockIndex, updated)} onJumpToBlock={(idx) => setActiveBlockIndex(idx)} onApplyQuickFix={handleApplyQuickFix}/>
+          {selectedLesson ? (
+            <InspectorAndQualityPanel selectedBlock={blocks[activeBlockIndex]} selectedBlockIndex={activeBlockIndex} qualityResult={qualityResult} onUpdateSelectedBlock={(updated) => handleUpdateBlock(activeBlockIndex, updated)} onJumpToBlock={(idx) => setActiveBlockIndex(idx)} onApplyQuickFix={handleApplyQuickFix}/>
+          ) : (
+            <div className="w-80 shrink-0 h-full bg-white border-l border-slate-200 flex flex-col items-center justify-center p-6 text-center text-slate-400">
+              <Sparkles className="w-8 h-8 text-slate-300 mb-2" />
+              <p className="text-xs font-semibold text-slate-600">Pedagogical Inspector</p>
+              <p className="text-[11px] text-slate-400 mt-1 max-w-[200px]">
+                Quality metrics, block properties, and citations will appear here once a lesson is selected.
+              </p>
+            </div>
+          )}
         </div>)}
 
       {/* ── Bottom Governance Action Ribbon (Studio Edit Mode Only) ── */}

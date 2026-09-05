@@ -12,13 +12,14 @@ export class ApiError extends Error {
     requestId;
     status;
     details;
-    constructor(status, envelope) {
-        super(envelope.message || 'API request failed');
+    constructor(status, envelope = {}) {
+        const msg = envelope.message || (typeof envelope.detail === 'string' ? envelope.detail : '') || 'API request failed';
+        super(msg);
         this.name = 'ApiError';
         this.status = status;
-        this.code = envelope.code || 'UNKNOWN_ERROR';
+        this.code = envelope.code || (typeof envelope.detail === 'string' ? envelope.detail : 'UNKNOWN_ERROR');
         this.requestId = envelope.request_id;
-        this.details = envelope.details;
+        this.details = envelope.details || envelope.detail;
     }
 }
 // Token storage & listeners
@@ -33,6 +34,7 @@ export const resolveEndpointUrl = (endpoint) => {
 };
 
 let currentAccessToken = null;
+let currentAdminRole = 'SUPER_ADMIN';
 let onTokenExpiredCallback = null;
 let inFlightRefreshPromise = null;
 export const setAccessToken = (token) => {
@@ -40,6 +42,12 @@ export const setAccessToken = (token) => {
 };
 export const getAccessToken = () => {
     return currentAccessToken;
+};
+export const setAdminRole = (role) => {
+    currentAdminRole = role;
+};
+export const getAdminRole = () => {
+    return currentAdminRole;
 };
 export const setOnTokenExpired = (callback) => {
     onTokenExpiredCallback = callback;
@@ -88,6 +96,7 @@ export const apiClient = async (endpoint, options = {}) => {
     const requestHeaders = {
         'Content-Type': 'application/json',
         'X-CSRF-Token': 'csrf-session-token',
+        'X-Admin-Role': currentAdminRole,
         ...headers,
     };
     if (currentAccessToken && !requestHeaders['Authorization']) {

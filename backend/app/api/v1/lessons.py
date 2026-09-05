@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
-from app.core.security import verify_jwt_token, validate_origin_and_csrf
+from app.core.security import verify_jwt_token, validate_origin_and_csrf, resolve_admin_context
 from app.core.config import settings
 from app.models.lesson import Lesson, LessonVersion
 
@@ -89,21 +89,7 @@ async def publish_lesson_atomic(
     Executes publishing inside a single atomic database transaction.
     """
     validate_origin_and_csrf(request)
-    auth_header = request.headers.get("authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="UNAUTHORIZED")
-
-    payload = verify_jwt_token(auth_header.split(" ")[1])
-    actor_id = uuid.UUID(payload["sub"])
-    actor_role = payload.get("role", "LEARNER")
-
-    # Environment-scoped role gate
-    if settings.ENVIRONMENT in ("development", "test", "testing"):
-        allowed_roles = ["PUBLISHER", "SUPER_ADMIN", "CONTENT_EDITOR", "ADMIN", "LEARNER"]
-    else:
-        allowed_roles = ["PUBLISHER", "SUPER_ADMIN"]
-    if actor_role not in allowed_roles:
-        raise HTTPException(status_code=403, detail=f"FORBIDDEN: Role '{actor_role}' cannot publish lessons in {settings.ENVIRONMENT} environment.")
+    actor_id, actor_role = resolve_admin_context(request, ["PUBLISHER", "SUPER_ADMIN", "CONTENT_EDITOR", "ADMIN"])
 
     from app.services.content_service import ContentPublicationService
 

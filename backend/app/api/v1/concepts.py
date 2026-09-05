@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
-from app.core.security import verify_jwt_token, validate_origin_and_csrf
+from app.core.security import verify_jwt_token, validate_origin_and_csrf, resolve_admin_context
 from app.models.concept import Concept, ConceptRelationship
 
 router = APIRouter()
@@ -49,16 +49,7 @@ async def get_concepts(domain: Optional[str] = None, db: AsyncSession = Depends(
 @router.post("/concepts")
 async def create_concept(req: ConceptCreateRequest, request: Request, db: AsyncSession = Depends(get_db)):
     validate_origin_and_csrf(request)
-    auth_header = request.headers.get("authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="UNAUTHORIZED")
-
-    payload = verify_jwt_token(auth_header.split(" ")[1])
-    actor_id = uuid.UUID(payload["sub"])
-    actor_role = payload.get("role", "LEARNER")
-
-    if actor_role not in ["CONTENT_EDITOR", "SUPER_ADMIN"]:
-        raise HTTPException(status_code=403, detail="FORBIDDEN_ROLE: Only CONTENT_EDITOR or SUPER_ADMIN can create concepts.")
+    actor_id, actor_role = resolve_admin_context(request, ["CONTENT_EDITOR", "SUPER_ADMIN", "ADMIN"])
 
     # Unique slug check
     slug_stmt = select(Concept).where(Concept.slug == req.slug)
@@ -90,15 +81,7 @@ async def add_relationship(
     db: AsyncSession = Depends(get_db)
 ):
     validate_origin_and_csrf(request)
-    auth_header = request.headers.get("authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="UNAUTHORIZED")
-
-    payload = verify_jwt_token(auth_header.split(" ")[1])
-    actor_role = payload.get("role", "LEARNER")
-
-    if actor_role not in ["CONTENT_EDITOR", "SUPER_ADMIN"]:
-        raise HTTPException(status_code=403, detail="FORBIDDEN_ROLE: Only CONTENT_EDITOR or SUPER_ADMIN can manage concept relationships.")
+    actor_id, actor_role = resolve_admin_context(request, ["CONTENT_EDITOR", "SUPER_ADMIN", "ADMIN"])
 
     # 1. Reject self-references
     if concept_id == req.target_concept_id:
