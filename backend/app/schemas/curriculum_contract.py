@@ -301,6 +301,7 @@ class ModuleCreateRequest(BaseModel):
     time or updated later via PATCH. The application layer never infers or hardcodes
     these values from module slug or name.
     """
+    domain_id: Optional[uuid.UUID] = None
     series_id: Optional[uuid.UUID] = None
     slug: Optional[str] = None
     name: str
@@ -320,6 +321,8 @@ class ModuleUpdateRequest(BaseModel):
     Request schema for updating curriculum module metadata.
     All fields are optional; only supplied fields are written.
     """
+    domain_id: Optional[uuid.UUID] = None
+    series_id: Optional[uuid.UUID] = None
     name: Optional[str] = None
     description: Optional[str] = None
     order_index: Optional[int] = None

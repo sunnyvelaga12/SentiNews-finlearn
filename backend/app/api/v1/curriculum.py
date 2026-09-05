@@ -86,25 +86,27 @@ async def create_module(
 ):
     require_content_editor(request)
     import re
+    domain_id = req.domain_id
     series_id = req.series_id
-    if not series_id:
-        s_stmt = select(Series.id).order_by(Series.order_index.asc()).limit(1)
-        series_id = (await db.execute(s_stmt)).scalar_one_or_none()
-        if not series_id:
-            d_stmt = select(Domain.id).limit(1)
-            domain_id = (await db.execute(d_stmt)).scalar_one_or_none()
-            if not domain_id:
-                dom = Domain(id=uuid.uuid4(), slug="technical-analysis", name="Technical Analysis")
-                db.add(dom)
-                await db.flush()
-                domain_id = dom.id
-            world = World(id=uuid.uuid4(), domain_id=domain_id, slug="trading-foundations", name="Trading Foundations")
-            db.add(world)
+
+    # If domain_id provided, verify domain exists
+    if domain_id:
+        d_exists = (await db.execute(select(Domain.id).where(Domain.id == domain_id))).scalar_one_or_none()
+        if not d_exists:
+            raise HTTPException(status_code=404, detail="DOMAIN_NOT_FOUND")
+    elif series_id:
+        s_exists = (await db.execute(select(Series.id).where(Series.id == series_id))).scalar_one_or_none()
+        if not s_exists:
+            raise HTTPException(status_code=404, detail="SERIES_NOT_FOUND")
+    else:
+        # If neither provided, associate with the first available domain or create default domain
+        d_stmt = select(Domain.id).order_by(Domain.order_index.asc()).limit(1)
+        domain_id = (await db.execute(d_stmt)).scalar_one_or_none()
+        if not domain_id:
+            dom = Domain(id=uuid.uuid4(), slug="technical-analysis", name="Technical Analysis")
+            db.add(dom)
             await db.flush()
-            series = Series(id=uuid.uuid4(), world_id=world.id, slug="core-series", name="Core Curriculum")
-            db.add(series)
-            await db.flush()
-            series_id = series.id
+            domain_id = dom.id
 
     slug = req.slug
     if not slug:
@@ -118,6 +120,7 @@ async def create_module(
 
     new_module = Module(
         id=uuid.uuid4(),
+        domain_id=domain_id,
         series_id=series_id,
         slug=slug,
         name=req.name,
@@ -137,6 +140,7 @@ async def create_module(
     return {
         "status": "SUCCESS",
         "module_id": str(new_module.id),
+        "domain_id": str(new_module.domain_id) if new_module.domain_id else None,
         "slug": new_module.slug,
         "name": new_module.name,
     }
@@ -156,6 +160,10 @@ async def update_module(
     if not mod:
         raise HTTPException(status_code=404, detail="MODULE_NOT_FOUND")
 
+    if req.domain_id is not None:
+        mod.domain_id = req.domain_id
+    if req.series_id is not None:
+        mod.series_id = req.series_id
     if req.name is not None:
         mod.name = req.name
     if req.description is not None:

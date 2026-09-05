@@ -60,24 +60,11 @@ export const AdminStudioPage = () => {
         let inReviewCount = 0;
 
         for (const d of tree) {
-            for (const w of (d.worlds || [])) {
-                for (const s of (w.series || [])) {
-                    for (const m of (s.modules || [])) {
-                        totalModules++;
-                        for (const u of (m.units || [])) {
-                            totalUnits++;
-                            for (const l of (u.lessons || [])) {
-                                totalLessons++;
-                                const st = (l.status || '').toUpperCase();
-                                if (st === 'PUBLISHED') publishedCount++;
-                                else if (st === 'IN_REVIEW' || st === 'REVIEW') inReviewCount++;
-                                else draftCount++;
-                            }
-                        }
-                    }
-                }
-            }
-            for (const m of (d.modules || [])) {
+            const modules = (d.modules && d.modules.length > 0)
+                ? d.modules
+                : (d.worlds || []).flatMap((w) => (w.series || []).flatMap((s) => s.modules || []));
+
+            for (const m of modules) {
                 totalModules++;
                 for (const u of (m.units || [])) {
                     totalUnits++;
@@ -110,16 +97,16 @@ export const AdminStudioPage = () => {
                 const rawTree = Array.isArray(data) ? data : (data?.tree || []);
                 setTree(rawTree);
 
-                // Flatten units with lessons from full 6-level hierarchy for selection lookups
+                // Flatten units with lessons from 4-level hierarchy for selection lookups
                 const allUnitsWithLessons = [];
                 for (const d of rawTree) {
-                    for (const w of (d.worlds || [])) {
-                        for (const s of (w.series || [])) {
-                            for (const m of (s.modules || [])) {
-                                for (const u of (m.units || [])) {
-                                    allUnitsWithLessons.push({ module: m, unit: u, lessons: u.lessons || [] });
-                                }
-                            }
+                    const modules = (d.modules && d.modules.length > 0)
+                        ? d.modules
+                        : (d.worlds || []).flatMap((w) => (w.series || []).flatMap((s) => s.modules || []));
+
+                    for (const m of modules) {
+                        for (const u of (m.units || [])) {
+                            allUnitsWithLessons.push({ module: m, unit: u, lessons: u.lessons || [] });
                         }
                     }
                 }

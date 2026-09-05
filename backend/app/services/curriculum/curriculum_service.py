@@ -63,16 +63,16 @@ class CurriculumContentService:
         for slug, name in dom_res.all():
             domains_list.append({"slug": slug, "name": name})
 
-        # 2. Query matching modules joined with Domain
+        # 2. Query matching modules joined with Domain (supports both direct Domain -> Module and legacy Series -> World)
         base_query = (
             select(
                 Module,
                 Domain.slug.label("domain_slug"),
                 Domain.name.label("domain_name")
             )
-            .join(Series, Module.series_id == Series.id)
-            .join(World, Series.world_id == World.id)
-            .join(Domain, World.domain_id == Domain.id)
+            .outerjoin(Series, Module.series_id == Series.id)
+            .outerjoin(World, Series.world_id == World.id)
+            .join(Domain, (Module.domain_id == Domain.id) | (World.domain_id == Domain.id))
         )
         if domain_slug and domain_slug.lower() != "all":
             base_query = base_query.where(Domain.slug == domain_slug.lower())
@@ -315,16 +315,27 @@ class CurriculumContentService:
             }
             units_by_module.setdefault(u.module_id, []).append(unit_node)
 
+        modules_by_domain: Dict[uuid.UUID, List[Dict[str, Any]]] = {}
         modules_by_series: Dict[uuid.UUID, List[Dict[str, Any]]] = {}
         for m in modules:
             mod_node = {
                 "id": str(m.id),
+                "domain_id": str(m.domain_id) if m.domain_id else None,
                 "slug": m.slug,
                 "name": m.name,
                 "description": m.description,
+                "learner_goal": m.learner_goal,
+                "why_this_matters": m.why_this_matters,
+                "learning_outcomes": m.learning_outcomes or [],
+                "completion_criteria": m.completion_criteria,
+                "estimated_hours": m.estimated_hours,
+                "level": m.level,
                 "units": units_by_module.get(m.id, []),
             }
-            modules_by_series.setdefault(m.series_id, []).append(mod_node)
+            if m.domain_id:
+                modules_by_domain.setdefault(m.domain_id, []).append(mod_node)
+            if m.series_id:
+                modules_by_series.setdefault(m.series_id, []).append(mod_node)
 
         series_by_world: Dict[uuid.UUID, List[Dict[str, Any]]] = {}
         for s in series_list:
@@ -348,10 +359,23 @@ class CurriculumContentService:
 
         tree = []
         for d in domains:
+            # Combine direct modules and any nested series modules (no duplicates)
+            d_mods = list(modules_by_domain.get(d.id, []))
+            seen_mod_ids = {m["id"] for m in d_mods}
+            for w in worlds_by_domain.get(d.id, []):
+                for s in w.get("series", []):
+                    for m in s.get("modules", []):
+                        if m["id"] not in seen_mod_ids:
+                            d_mods.append(m)
+                            seen_mod_ids.add(m["id"])
+
             tree.append({
                 "id": str(d.id),
                 "slug": d.slug,
                 "name": d.name,
+                "description": d.description,
+                "order_index": d.order_index,
+                "modules": d_mods,
                 "worlds": worlds_by_domain.get(d.id, []),
             })
         return tree

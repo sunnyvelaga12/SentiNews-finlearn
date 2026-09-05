@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   Globe,
-  Compass,
-  Layers,
   Folder,
   BookOpen,
   FileText,
@@ -40,10 +38,8 @@ export const CurriculumNavigator = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
 
-  // Expansion states across the 6-level hierarchy
+  // Expansion states across the 4-level hierarchy (Domain -> Module -> Unit -> Lesson)
   const [expandedDomains, setExpandedDomains] = useState({});
-  const [expandedWorlds, setExpandedWorlds] = useState({});
-  const [expandedSeries, setExpandedSeries] = useState({});
   const [expandedModules, setExpandedModules] = useState({});
   const [expandedUnits, setExpandedUnits] = useState({});
 
@@ -53,19 +49,9 @@ export const CurriculumNavigator = ({
   const [isSubmittingDomain, setIsSubmittingDomain] = useState(false);
   const [domainError, setDomainError] = useState(null);
 
-  const [showAddWorldModal, setShowAddWorldModal] = useState(false);
-  const [worldForm, setWorldForm] = useState({ domain_id: '', name: '', description: '' });
-  const [isSubmittingWorld, setIsSubmittingWorld] = useState(false);
-  const [worldError, setWorldError] = useState(null);
-
-  const [showAddSeriesModal, setShowAddSeriesModal] = useState(false);
-  const [seriesForm, setSeriesForm] = useState({ world_id: '', name: '', description: '' });
-  const [isSubmittingSeries, setIsSubmittingSeries] = useState(false);
-  const [seriesError, setSeriesError] = useState(null);
-
   const [showAddModuleModal, setShowAddModuleModal] = useState(false);
   const [moduleForm, setModuleForm] = useState({
-    series_id: '',
+    domain_id: '',
     name: '',
     slug: '',
     description: '',
@@ -101,17 +87,17 @@ export const CurriculumNavigator = ({
 
   // ── Edit Modals ──────────────────────────────────────────────────────────
   const [showEditModuleModal, setShowEditModuleModal] = useState(false);
-  const [editModuleTarget, setEditModuleTarget] = useState(null); // { id, name, description, level, estimated_hours, learner_goal, why_this_matters, learning_outcomes }
+  const [editModuleTarget, setEditModuleTarget] = useState(null);
   const [editModuleForm, setEditModuleForm] = useState({});
   const [editModuleError, setEditModuleError] = useState(null);
 
   const [showEditUnitModal, setShowEditUnitModal] = useState(false);
-  const [editUnitTarget, setEditUnitTarget] = useState(null); // { id, name, description }
+  const [editUnitTarget, setEditUnitTarget] = useState(null);
   const [editUnitForm, setEditUnitForm] = useState({});
   const [editUnitError, setEditUnitError] = useState(null);
 
   // ── Delete Confirmation Dialog ────────────────────────────────────────────
-  const [deleteDialog, setDeleteDialog] = useState(null); // { type, id, name, onConfirm }
+  const [deleteDialog, setDeleteDialog] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [forceDelete, setForceDelete] = useState(false);
   const [deleteError, setDeleteError] = useState(null);
@@ -122,50 +108,30 @@ export const CurriculumNavigator = ({
     return tree.map((d) => ({ id: d.id, name: d.name }));
   }, [tree]);
 
-  const availableWorlds = useMemo(() => {
-    const list = [];
-    tree.forEach((domain) => {
-      (domain.worlds || []).forEach((world) => {
-        list.push({
-          id: world.id,
-          name: world.name,
-          label: `${domain.name} → ${world.name}`,
-        });
-      });
-    });
-    return list;
-  }, [tree]);
-
-  const availableSeries = useMemo(() => {
-    const list = [];
-    tree.forEach((domain) => {
-      (domain.worlds || []).forEach((world) => {
-        list.push({
-          id: world.id,
-          label: `${domain.name} → ${world.name} → ${world.name}`,
-        });
-        (world.series || []).forEach((s) => {
-          list.push({
-            id: s.id,
-            label: `${domain.name} → ${world.name} → ${s.name}`,
-          });
-        });
-      });
-    });
-    return list;
-  }, [tree]);
-
   const availableModules = useMemo(() => {
     const list = [];
     tree.forEach((domain) => {
+      // 1. Direct modules on domain
+      (domain.modules || []).forEach((m) => {
+        list.push({
+          id: m.id,
+          name: m.name,
+          label: `${m.name} (${domain.name})`,
+          domain_id: domain.id,
+        });
+      });
+      // 2. Fallback for nested worlds/series if any legacy data exists
       (domain.worlds || []).forEach((world) => {
         (world.series || []).forEach((s) => {
           (s.modules || []).forEach((m) => {
-            list.push({
-              id: m.id,
-              name: m.name,
-              label: `${m.name} (${domain.name})`,
-            });
+            if (!list.some((existing) => existing.id === m.id)) {
+              list.push({
+                id: m.id,
+                name: m.name,
+                label: `${m.name} (${domain.name})`,
+                domain_id: domain.id,
+              });
+            }
           });
         });
       });
@@ -176,16 +142,24 @@ export const CurriculumNavigator = ({
   const availableUnits = useMemo(() => {
     const list = [];
     tree.forEach((domain) => {
-      (domain.worlds || []).forEach((world) => {
-        (world.series || []).forEach((s) => {
-          (s.modules || []).forEach((m) => {
-            (m.units || []).forEach((u) => {
+      const processModules = (mods) => {
+        (mods || []).forEach((m) => {
+          (m.units || []).forEach((u) => {
+            if (!list.some((existing) => existing.id === u.id)) {
               list.push({
                 id: u.id,
+                name: u.name,
                 label: `${m.name} → ${u.name}`,
+                module_id: m.id,
               });
-            });
+            }
           });
+        });
+      };
+      processModules(domain.modules);
+      (domain.worlds || []).forEach((w) => {
+        (w.series || []).forEach((s) => {
+          processModules(s.modules);
         });
       });
     });
@@ -195,37 +169,33 @@ export const CurriculumNavigator = ({
   // Default expansion on tree load
   useEffect(() => {
     const doms = {};
-    const wrlds = {};
-    const sers = {};
     const mods = {};
     const uns = {};
 
     tree.forEach((domain) => {
       doms[domain.id] = true;
-      (domain.worlds || []).forEach((world) => {
-        wrlds[world.id] = true;
-        (world.series || []).forEach((s) => {
-          sers[s.id] = true;
-          (s.modules || []).forEach((m) => {
-            mods[m.id] = true;
-            (m.units || []).forEach((u) => {
-              uns[u.id] = true;
-            });
+      const processModules = (moduleList) => {
+        (moduleList || []).forEach((m) => {
+          mods[m.id] = true;
+          (m.units || []).forEach((u) => {
+            uns[u.id] = true;
           });
+        });
+      };
+      processModules(domain.modules);
+      (domain.worlds || []).forEach((w) => {
+        (w.series || []).forEach((s) => {
+          processModules(s.modules);
         });
       });
     });
 
     setExpandedDomains((prev) => ({ ...doms, ...prev }));
-    setExpandedWorlds((prev) => ({ ...wrlds, ...prev }));
-    setExpandedSeries((prev) => ({ ...sers, ...prev }));
     setExpandedModules((prev) => ({ ...mods, ...prev }));
     setExpandedUnits((prev) => ({ ...uns, ...prev }));
   }, [tree]);
 
   const toggleDomain = (id) => setExpandedDomains((prev) => ({ ...prev, [id]: !prev[id] }));
-  const toggleWorld = (id) => setExpandedWorlds((prev) => ({ ...prev, [id]: !prev[id] }));
-  const toggleSeries = (id) => setExpandedSeries((prev) => ({ ...prev, [id]: !prev[id] }));
   const toggleModule = (id) => setExpandedModules((prev) => ({ ...prev, [id]: !prev[id] }));
   const toggleUnit = (id) => setExpandedUnits((prev) => ({ ...prev, [id]: !prev[id] }));
 
@@ -276,26 +246,6 @@ export const CurriculumNavigator = ({
     setShowAddDomainModal(true);
   };
 
-  const handleOpenAddWorld = (defaultDomainId = null) => {
-    setWorldForm({
-      domain_id: defaultDomainId || availableDomains[0]?.id || '',
-      name: '',
-      description: '',
-    });
-    setWorldError(null);
-    setShowAddWorldModal(true);
-  };
-
-  const handleOpenAddSeries = (defaultWorldId = null) => {
-    setSeriesForm({
-      world_id: defaultWorldId || availableWorlds[0]?.id || '',
-      name: '',
-      description: '',
-    });
-    setSeriesError(null);
-    setShowAddSeriesModal(true);
-  };
-
   const handleConfirmCreateDomain = async () => {
     if (!domainForm.name.trim() || isSubmittingDomain) return;
     setIsSubmittingDomain(true);
@@ -322,69 +272,9 @@ export const CurriculumNavigator = ({
     }
   };
 
-  const handleConfirmCreateWorld = async () => {
-    if (!worldForm.name.trim() || !worldForm.domain_id || isSubmittingWorld) return;
-    setIsSubmittingWorld(true);
-    setWorldError(null);
-    try {
-      const res = await apiClient('/api/v1/curriculum/worlds', {
-        method: 'POST',
-        body: JSON.stringify({
-          domain_id: worldForm.domain_id,
-          name: worldForm.name.trim(),
-          description: worldForm.description.trim(),
-        }),
-      });
-      if (res?.world?.id) {
-        setExpandedWorlds((prev) => ({ ...prev, [res.world.id]: true }));
-      }
-      if (worldForm.domain_id) {
-        setExpandedDomains((prev) => ({ ...prev, [worldForm.domain_id]: true }));
-      }
-      if (onRefreshTree) await onRefreshTree();
-      setShowAddWorldModal(false);
-      setWorldForm({ domain_id: '', name: '', description: '' });
-    } catch (err) {
-      console.error('Failed to create world:', err);
-      setWorldError(err?.message || 'Failed to create world. Please try again.');
-    } finally {
-      setIsSubmittingWorld(false);
-    }
-  };
-
-  const handleConfirmCreateSeries = async () => {
-    if (!seriesForm.name.trim() || !seriesForm.world_id || isSubmittingSeries) return;
-    setIsSubmittingSeries(true);
-    setSeriesError(null);
-    try {
-      const res = await apiClient('/api/v1/curriculum/series', {
-        method: 'POST',
-        body: JSON.stringify({
-          world_id: seriesForm.world_id,
-          name: seriesForm.name.trim(),
-          description: seriesForm.description.trim(),
-        }),
-      });
-      if (res?.series?.id) {
-        setExpandedSeries((prev) => ({ ...prev, [res.series.id]: true }));
-      }
-      if (seriesForm.world_id) {
-        setExpandedWorlds((prev) => ({ ...prev, [seriesForm.world_id]: true }));
-      }
-      if (onRefreshTree) await onRefreshTree();
-      setShowAddSeriesModal(false);
-      setSeriesForm({ world_id: '', name: '', description: '' });
-    } catch (err) {
-      console.error('Failed to create series:', err);
-      setSeriesError(err?.message || 'Failed to create series. Please try again.');
-    } finally {
-      setIsSubmittingSeries(false);
-    }
-  };
-
-  const handleOpenAddModule = () => {
+  const handleOpenAddModule = (defaultDomainId = null) => {
     setModuleForm({
-      series_id: availableSeries[0]?.id || '',
+      domain_id: defaultDomainId || availableDomains[0]?.id || '',
       name: '',
       slug: '',
       description: '',
@@ -430,7 +320,7 @@ export const CurriculumNavigator = ({
         ? moduleForm.learning_outcomes.split('\n').map((s) => s.trim()).filter(Boolean)
         : [];
       const res = await onCreateModule({
-        series_id: moduleForm.series_id || undefined,
+        domain_id: moduleForm.domain_id || undefined,
         name: moduleForm.name.trim(),
         slug: moduleForm.slug.trim() || undefined,
         description: moduleForm.description.trim(),
@@ -441,11 +331,15 @@ export const CurriculumNavigator = ({
         estimated_hours: Number(moduleForm.estimated_hours) || 1.5,
         level: moduleForm.level,
       });
-      const modId = res?.module?.id || res?.id;
+      const modId = res?.module_id || res?.module?.id || res?.id;
       if (modId) {
         setExpandedModules((prev) => ({ ...prev, [modId]: true }));
       }
+      if (moduleForm.domain_id) {
+        setExpandedDomains((prev) => ({ ...prev, [moduleForm.domain_id]: true }));
+      }
       setShowAddModuleModal(false);
+      if (onRefreshTree) await onRefreshTree();
     } catch (err) {
       console.error('Failed to create module:', err);
       setModuleError(err?.message || 'Failed to create module. Please try again.');
@@ -733,9 +627,9 @@ export const CurriculumNavigator = ({
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleOpenAddWorld(domain.id);
+                        handleOpenAddModule(domain.id);
                       }}
-                      title="Add World to Domain"
+                      title="Add Module to Domain"
                       className="p-0.5 hover:bg-slate-200 rounded text-slate-400 hover:text-slate-700 transition-colors"
                     >
                       <Plus className="w-3.5 h-3.5" />
@@ -743,314 +637,245 @@ export const CurriculumNavigator = ({
                   </div>
                 </div>
 
-                {isDomainExpanded && (
-                  <div className="pl-3 ml-2 border-l border-slate-200 space-y-1">
-                    {(domain.worlds || []).map((world) => {
-                      const isWorldExpanded = expandedWorlds[world.id] !== false;
-                      return (
-                        <div key={world.id} className="space-y-1">
-                          {/* 2. World Level */}
-                          <div
-                            onClick={() => toggleWorld(world.id)}
-                            className="group flex items-center justify-between px-2 py-1 rounded hover:bg-slate-100 cursor-pointer text-xs font-bold text-slate-700"
+                {(() => {
+                  const domainModules = (domain.modules && domain.modules.length > 0)
+                    ? domain.modules
+                    : (domain.worlds || []).flatMap((w) => (w.series || []).flatMap((s) => s.modules || []));
+
+                  return isDomainExpanded && (
+                    <div className="pl-3 ml-2 border-l border-slate-200 space-y-1">
+                      {domainModules.length === 0 ? (
+                        <div className="px-2 py-1.5 text-[11px] text-slate-400 italic flex items-center justify-between">
+                          <span>No modules in this domain</span>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenAddModule(domain.id);
+                            }}
+                            className="text-blue-600 font-semibold hover:underline flex items-center gap-0.5"
                           >
-                            <div className="flex items-center gap-1.5 truncate">
-                              {isWorldExpanded ? (
-                                <ChevronDown className="w-3 h-3 text-slate-400 shrink-0" />
-                              ) : (
-                                <ChevronRight className="w-3 h-3 text-slate-400 shrink-0" />
-                              )}
-                              <Compass className="w-3.5 h-3.5 text-sky-500 shrink-0" />
-                              <span className="truncate text-[11px] uppercase tracking-wide">
-                                {world.name}
-                              </span>
-                            </div>
-
-                            <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 transition-opacity shrink-0">
-                              <button
-                                onClick={(e) => promptDelete(e, 'World', world.id, world.name, async () => {
-                                  await apiClient(`/api/v1/curriculum/worlds/${world.id}`, { method: 'DELETE' });
-                                  if (onRefreshTree) await onRefreshTree();
-                                })}
-                                title="Delete World"
-                                className="p-0.5 hover:bg-rose-100 hover:text-rose-600 rounded text-slate-400 transition-colors"
+                            <Plus className="w-3 h-3" /> Add Module
+                          </button>
+                        </div>
+                      ) : (
+                        domainModules.map((mod) => {
+                          const isModExpanded = expandedModules[mod.id] !== false;
+                          return (
+                            <div key={mod.id} className="space-y-0.5">
+                              {/* 2. Module Level */}
+                              <div
+                                onClick={() => toggleModule(mod.id)}
+                                className="group flex items-center justify-between px-2 py-1.5 rounded hover:bg-slate-100 cursor-pointer text-xs font-bold text-slate-900"
                               >
-                                <Trash2 className="w-3 h-3" />
-                              </button>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleOpenAddSeries(world.id);
-                                }}
-                                title="Add Series to World"
-                                className="p-0.5 hover:bg-slate-200 rounded text-slate-400 hover:text-slate-700 transition-colors"
-                              >
-                                <Plus className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </div>
+                                <div className="flex items-center gap-1.5 truncate">
+                                  {isModExpanded ? (
+                                    <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                  ) : (
+                                    <ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                  )}
+                                  <Folder className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                                  <span className="truncate">{mod.name}</span>
+                                  <span className="text-[10px] text-slate-400 font-normal ml-0.5">
+                                    ({mod.units?.length || 0})
+                                  </span>
+                                </div>
 
-                          {isWorldExpanded && (
-                            <div className="pl-3 ml-2 border-l border-slate-200 space-y-1">
-                              {(world.series || []).map((series) => {
-                                const isSeriesExpanded = expandedSeries[series.id] !== false;
-                                return (
-                                  <div key={series.id} className="space-y-1">
-                                    {/* 3. Series Level */}
-                                    <div
-                                      onClick={() => toggleSeries(series.id)}
-                                      className="group flex items-center justify-between px-2 py-1 rounded hover:bg-slate-100 cursor-pointer text-xs font-semibold text-slate-600"
-                                    >
-                                      <div className="flex items-center gap-1.5 truncate">
-                                        {isSeriesExpanded ? (
-                                          <ChevronDown className="w-3 h-3 text-slate-400 shrink-0" />
-                                        ) : (
-                                          <ChevronRight className="w-3 h-3 text-slate-400 shrink-0" />
-                                        )}
-                                        <Layers className="w-3 h-3 text-emerald-500 shrink-0" />
-                                        <span className="truncate text-[11px]">
-                                          {series.name}
-                                        </span>
-                                      </div>
+                                <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 transition-opacity shrink-0">
+                                  <button
+                                    onClick={(e) => handleOpenEditModule(e, mod)}
+                                    title="Edit Module"
+                                    className="p-0.5 hover:bg-blue-100 hover:text-blue-700 rounded text-slate-400 transition-colors"
+                                  >
+                                    <Pencil className="w-3 h-3" />
+                                  </button>
+                                  <button
+                                    onClick={(e) => promptDelete(e, 'Module', mod.id, mod.name, async (force) => {
+                                      await apiClient(`/api/v1/curriculum/modules/${mod.id}${force ? '?force=true' : ''}`, { method: 'DELETE' });
+                                      if (onDeleteModule) await onDeleteModule(mod.id);
+                                    })}
+                                    title="Delete Module"
+                                    className="p-0.5 hover:bg-rose-100 hover:text-rose-600 rounded text-slate-400 transition-colors"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleOpenAddUnit(mod.id);
+                                    }}
+                                    title="Add Unit to Module"
+                                    className="p-0.5 hover:bg-slate-200 rounded text-slate-400 transition-colors"
+                                  >
+                                    <Plus className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </div>
 
-                                      <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 transition-opacity shrink-0">
-                                        <button
-                                          onClick={(e) => promptDelete(e, 'Series', series.id, series.name, async () => {
-                                            await apiClient(`/api/v1/curriculum/series/${series.id}`, { method: 'DELETE' });
-                                            if (onRefreshTree) await onRefreshTree();
-                                          })}
-                                          title="Delete Series"
-                                          className="p-0.5 hover:bg-rose-100 hover:text-rose-600 rounded text-slate-400 transition-colors"
-                                        >
-                                          <Trash2 className="w-3 h-3" />
-                                        </button>
-                                        <button
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            setModuleForm((prev) => ({ ...prev, series_id: series.id }));
-                                            setShowAddModuleModal(true);
-                                          }}
-                                          title="Add Module to Series"
-                                          className="p-0.5 hover:bg-slate-200 rounded text-slate-400 hover:text-slate-700 transition-colors"
-                                        >
-                                          <Plus className="w-3.5 h-3.5" />
-                                        </button>
-                                      </div>
+                              {/* 3. Unit Level */}
+                              {isModExpanded && (
+                                <div className="pl-3 ml-2 border-l border-slate-200 space-y-0.5">
+                                  {(mod.units || []).length === 0 ? (
+                                    <div className="px-2 py-1 text-[11px] text-slate-400 italic flex items-center justify-between">
+                                      <span>No units in this module</span>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleOpenAddUnit(mod.id);
+                                        }}
+                                        className="text-blue-600 font-semibold hover:underline flex items-center gap-0.5"
+                                      >
+                                        <Plus className="w-3 h-3" /> Add Unit
+                                      </button>
                                     </div>
+                                  ) : (
+                                    (mod.units || []).map((unit) => {
+                                      const isUnitExpanded = expandedUnits[unit.id] !== false;
+                                      const filteredLessons = (unit.lessons || []).filter((l) => {
+                                        const q = searchTerm.toLowerCase();
+                                        const matchesSearch =
+                                          q === '' ||
+                                          l.title.toLowerCase().includes(q) ||
+                                          l.slug?.toLowerCase().includes(q) ||
+                                          unit.name.toLowerCase().includes(q) ||
+                                          mod.name.toLowerCase().includes(q);
+                                        const matchesStatus =
+                                          statusFilter === 'ALL' ||
+                                          (statusFilter === 'REVIEW'
+                                            ? l.status.includes('REVIEW')
+                                            : l.status === statusFilter);
+                                        return matchesSearch && matchesStatus;
+                                      });
 
-                                    {isSeriesExpanded && (
-                                      <div className="pl-3 ml-2 border-l border-slate-200 space-y-1">
-                                        {(series.modules || []).map((mod) => {
-                                          const isModExpanded = expandedModules[mod.id] !== false;
-                                          return (
-                                            <div key={mod.id} className="space-y-0.5">
-                                              {/* 4. Module Level */}
-                                                 <div
-                                                  onClick={() => toggleModule(mod.id)}
-                                                  className="group flex items-center justify-between px-2 py-1.5 rounded hover:bg-slate-100 cursor-pointer text-xs font-bold text-slate-900"
-                                                >
-                                                  <div className="flex items-center gap-1.5 truncate">
-                                                    {isModExpanded ? (
-                                                      <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                                    ) : (
-                                                      <ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                                    )}
-                                                    <Folder className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                                                    <span className="truncate">{mod.name}</span>
-                                                    <span className="text-[10px] text-slate-400 font-normal ml-0.5">
-                                                      ({mod.units?.length || 0})
-                                                    </span>
-                                                  </div>
+                                      return (
+                                        <div key={unit.id} className="space-y-0.5">
+                                          <div
+                                            onClick={() => toggleUnit(unit.id)}
+                                            className="group flex items-center justify-between px-2 py-1 rounded hover:bg-slate-100 cursor-pointer text-xs font-medium text-slate-700"
+                                          >
+                                            <div className="flex items-center gap-1.5 truncate">
+                                              {isUnitExpanded ? (
+                                                <ChevronDown className="w-3 h-3 text-slate-400 shrink-0" />
+                                              ) : (
+                                                <ChevronRight className="w-3 h-3 text-slate-400 shrink-0" />
+                                              )}
+                                              <BookOpen className="w-3 h-3 text-amber-500 shrink-0" />
+                                              <span className="truncate text-[11px] font-semibold text-slate-700">
+                                                {unit.name}
+                                              </span>
+                                              <span className="text-[10px] text-slate-400 font-normal ml-0.5">
+                                                ({unit.lessons?.length || 0})
+                                              </span>
+                                            </div>
 
-                                                  <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 transition-opacity shrink-0">
-                                                    <button
-                                                      onClick={(e) => handleOpenEditModule(e, mod)}
-                                                      title="Edit Module"
-                                                      className="p-0.5 hover:bg-blue-100 hover:text-blue-700 rounded text-slate-400 transition-colors"
-                                                    >
-                                                      <Pencil className="w-3 h-3" />
-                                                    </button>
-                                                    <button
-                                                      onClick={(e) => promptDelete(e, 'Module', mod.id, mod.name, async (force) => {
-                                                        await apiClient(`/api/v1/curriculum/modules/${mod.id}${force ? '?force=true' : ''}`, { method: 'DELETE' });
-                                                        if (onDeleteModule) await onDeleteModule(mod.id);
-                                                      })}
-                                                      title="Delete Module"
-                                                      className="p-0.5 hover:bg-rose-100 hover:text-rose-600 rounded text-slate-400 transition-colors"
-                                                    >
-                                                      <Trash2 className="w-3 h-3" />
-                                                    </button>
-                                                    <button
-                                                      onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        handleOpenAddUnit(mod.id);
-                                                      }}
-                                                      title="Add Unit to Module"
-                                                      className="p-0.5 hover:bg-slate-200 rounded text-slate-400 transition-colors"
-                                                    >
-                                                      <Plus className="w-3.5 h-3.5" />
-                                                    </button>
-                                                  </div>
+                                            <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 transition-opacity shrink-0">
+                                              <button
+                                                onClick={(e) => handleOpenEditUnit(e, unit)}
+                                                title="Edit Unit"
+                                                className="p-0.5 hover:bg-blue-100 hover:text-blue-700 rounded text-slate-400 transition-colors"
+                                              >
+                                                <Pencil className="w-3 h-3" />
+                                              </button>
+                                              <button
+                                                onClick={(e) => promptDelete(e, 'Unit', unit.id, unit.name, async (force) => {
+                                                  await apiClient(`/api/v1/curriculum/units/${unit.id}${force ? '?force=true' : ''}`, { method: 'DELETE' });
+                                                  if (onDeleteUnit) await onDeleteUnit(unit.id);
+                                                })}
+                                                title="Delete Unit"
+                                                className="p-0.5 hover:bg-rose-100 hover:text-rose-600 rounded text-slate-400 transition-colors"
+                                              >
+                                                <Trash2 className="w-3 h-3" />
+                                              </button>
+                                              <button
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  handleOpenAddLesson(unit.id);
+                                                }}
+                                                title="Add Lesson to Unit"
+                                                className="p-0.5 hover:bg-slate-200 rounded text-slate-400 hover:text-slate-700 transition-colors"
+                                              >
+                                                <Plus className="w-3.5 h-3.5" />
+                                              </button>
+                                            </div>
+                                          </div>
+
+                                          {/* 4. Lesson Level */}
+                                          {isUnitExpanded && (
+                                            <div className="pl-3 ml-2 border-l border-slate-200 space-y-0.5">
+                                              {filteredLessons.length === 0 ? (
+                                                <div className="px-2 py-1 text-[10px] italic text-slate-400">
+                                                  No lessons match filter
                                                 </div>
-
-                                              {/* 5. Unit Level */}
-                                              {isModExpanded && (
-                                                <div className="pl-3 ml-2 border-l border-slate-200 space-y-0.5">
-                                                  {(mod.units || []).map((unit) => {
-                                                    const isUnitExpanded = expandedUnits[unit.id] !== false;
-                                                    const filteredLessons = (unit.lessons || []).filter((l) => {
-                                                      const q = searchTerm.toLowerCase();
-                                                      const matchesSearch =
-                                                        q === '' ||
-                                                        l.title.toLowerCase().includes(q) ||
-                                                        l.slug.toLowerCase().includes(q) ||
-                                                        unit.name.toLowerCase().includes(q) ||
-                                                        mod.name.toLowerCase().includes(q);
-                                                      const matchesStatus =
-                                                        statusFilter === 'ALL' ||
-                                                        (statusFilter === 'REVIEW'
-                                                          ? l.status.includes('REVIEW')
-                                                          : l.status === statusFilter);
-                                                      return matchesSearch && matchesStatus;
-                                                    });
-
-                                                    return (
-                                                      <div key={unit.id} className="space-y-0.5">
-                                                         <div
-                                                          onClick={() => toggleUnit(unit.id)}
-                                                          className="group flex items-center justify-between px-2 py-1 rounded hover:bg-slate-100 cursor-pointer text-xs font-medium text-slate-700"
-                                                        >
-                                                          <div className="flex items-center gap-1.5 truncate">
-                                                            {isUnitExpanded ? (
-                                                              <ChevronDown className="w-3 h-3 text-slate-400 shrink-0" />
-                                                            ) : (
-                                                              <ChevronRight className="w-3 h-3 text-slate-400 shrink-0" />
-                                                            )}
-                                                            <BookOpen className="w-3 h-3 text-amber-500 shrink-0" />
-                                                            <span className="truncate text-[11px] font-semibold text-slate-700">
-                                                              {unit.name}
-                                                            </span>
-                                                            <span className="text-[10px] text-slate-400 font-normal ml-0.5">
-                                                              ({unit.lessons?.length || 0})
-                                                            </span>
-                                                          </div>
-
-                                                          <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 transition-opacity shrink-0">
-                                                            <button
-                                                              onClick={(e) => handleOpenEditUnit(e, unit)}
-                                                              title="Edit Unit"
-                                                              className="p-0.5 hover:bg-blue-100 hover:text-blue-700 rounded text-slate-400 transition-colors"
-                                                            >
-                                                              <Pencil className="w-3 h-3" />
-                                                            </button>
-                                                            <button
-                                                              onClick={(e) => promptDelete(e, 'Unit', unit.id, unit.name, async (force) => {
-                                                                await apiClient(`/api/v1/curriculum/units/${unit.id}${force ? '?force=true' : ''}`, { method: 'DELETE' });
-                                                                if (onDeleteUnit) await onDeleteUnit(unit.id);
-                                                              })}
-                                                              title="Delete Unit"
-                                                              className="p-0.5 hover:bg-rose-100 hover:text-rose-600 rounded text-slate-400 transition-colors"
-                                                            >
-                                                              <Trash2 className="w-3 h-3" />
-                                                            </button>
-                                                            <button
-                                                              onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                handleOpenAddLesson(unit.id);
-                                                              }}
-                                                              title="Add Lesson to Unit"
-                                                              className="p-0.5 hover:bg-slate-200 rounded text-slate-400 hover:text-slate-700 transition-colors"
-                                                            >
-                                                              <Plus className="w-3.5 h-3.5" />
-                                                            </button>
-                                                          </div>
+                                              ) : (
+                                                filteredLessons.map((l) => {
+                                                  const isSelected = l.id === selectedLessonId;
+                                                  const isDirty = isSelected && hasUnsavedChanges;
+                                                  return (
+                                                    <div
+                                                      key={l.id}
+                                                      onClick={() => handleLessonClick(l, unit, mod)}
+                                                      className={`group px-2 py-1.5 rounded cursor-pointer transition-all flex flex-col gap-0.5 border ${
+                                                        isSelected
+                                                          ? 'bg-blue-50/90 border-blue-400 text-blue-950 shadow-sm'
+                                                          : 'border-transparent hover:bg-slate-100 text-slate-700'
+                                                      }`}
+                                                    >
+                                                      <div className="flex items-center justify-between gap-1.5">
+                                                        <div className="flex items-center gap-1.5 truncate">
+                                                          {isDirty ? (
+                                                            <span
+                                                              className="w-2 h-2 rounded-full bg-amber-500 shrink-0 animate-pulse"
+                                                              title="Unsaved changes"
+                                                            />
+                                                          ) : (
+                                                            <span
+                                                              className={`w-1.5 h-1.5 rounded-full ${
+                                                                isSelected
+                                                                  ? 'bg-blue-600'
+                                                                  : 'bg-slate-300'
+                                                              } shrink-0`}
+                                                            />
+                                                          )}
+                                                          <span className="text-xs font-semibold truncate">
+                                                            {l.title}
+                                                          </span>
                                                         </div>
 
-                                                        {/* 6. Lesson Level */}
-                                                        {isUnitExpanded && (
-                                                          <div className="pl-3 ml-2 border-l border-slate-200 space-y-0.5">
-                                                            {filteredLessons.length === 0 ? (
-                                                              <div className="px-2 py-1 text-[10px] italic text-slate-400">
-                                                                No lessons match filter
-                                                              </div>
-                                                            ) : (
-                                                              filteredLessons.map((l) => {
-                                                                const isSelected = l.id === selectedLessonId;
-                                                                const isDirty = isSelected && hasUnsavedChanges;
-                                                                return (
-                                                                  <div
-                                                                    key={l.id}
-                                                                    onClick={() => handleLessonClick(l, unit, mod)}
-                                                                    className={`group px-2 py-1.5 rounded cursor-pointer transition-all flex flex-col gap-0.5 border ${
-                                                                      isSelected
-                                                                        ? 'bg-blue-50/90 border-blue-400 text-blue-950 shadow-sm'
-                                                                        : 'border-transparent hover:bg-slate-100 text-slate-700'
-                                                                    }`}
-                                                                  >
-                                                                    <div className="flex items-center justify-between gap-1.5">
-                                                                      <div className="flex items-center gap-1.5 truncate">
-                                                                        {isDirty ? (
-                                                                          <span
-                                                                            className="w-2 h-2 rounded-full bg-amber-500 shrink-0 animate-pulse"
-                                                                            title="Unsaved changes"
-                                                                          />
-                                                                        ) : (
-                                                                          <span
-                                                                            className={`w-1.5 h-1.5 rounded-full ${
-                                                                              isSelected
-                                                                                ? 'bg-blue-600'
-                                                                                : 'bg-slate-300'
-                                                                            } shrink-0`}
-                                                                          />
-                                                                        )}
-                                                                        <span className="text-xs font-semibold truncate">
-                                                                          {l.title}
-                                                                        </span>
-                                                                      </div>
-
-                                                                      {/* Lesson delete button on hover */}
-                                                                      <button
-                                                                        onClick={(e) => promptDelete(e, 'Lesson', l.id, l.title, async (force) => {
-                                                                          await apiClient(`/api/v1/admin/lessons/${l.id}${force ? '?force=true' : ''}`, { method: 'DELETE' });
-                                                                          if (onDeleteLesson) await onDeleteLesson(l.id);
-                                                                        })}
-                                                                        title="Delete Lesson"
-                                                                        className="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-rose-100 hover:text-rose-600 rounded text-slate-400 transition-all shrink-0"
-                                                                      >
-                                                                        <Trash2 className="w-3 h-3" />
-                                                                      </button>
-                                                                    </div>
-
-                                                                    <div className="flex items-center justify-between text-[10px] text-slate-400 pl-3">
-                                                                      <span>v{l.version_number || 1}</span>
-                                                                      {renderStatusBadge(l.status)}
-                                                                    </div>
-                                                                  </div>
-                                                                );
-                                                              })
-                                                            )}
-                                                          </div>
-                                                        )}
+                                                        {/* Lesson delete button on hover */}
+                                                        <button
+                                                          onClick={(e) => promptDelete(e, 'Lesson', l.id, l.title, async (force) => {
+                                                            await apiClient(`/api/v1/admin/lessons/${l.id}${force ? '?force=true' : ''}`, { method: 'DELETE' });
+                                                            if (onDeleteLesson) await onDeleteLesson(l.id);
+                                                          })}
+                                                          title="Delete Lesson"
+                                                          className="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-rose-100 hover:text-rose-600 rounded text-slate-400 transition-all shrink-0"
+                                                        >
+                                                          <Trash2 className="w-3 h-3" />
+                                                        </button>
                                                       </div>
-                                                    );
-                                                  })}
-                                                </div>
+
+                                                      <div className="flex items-center justify-between text-[10px] text-slate-400 pl-3">
+                                                        <span>v{l.version_number || 1}</span>
+                                                        {renderStatusBadge(l.status)}
+                                                      </div>
+                                                    </div>
+                                                  );
+                                                })
                                               )}
                                             </div>
-                                          );
-                                        })}
-                                      </div>
-                                    )}
-                                  </div>
-                                );
-                              })}
+                                          )}
+                                        </div>
+                                      );
+                                    })
+                                  )}
+                                </div>
+                              )}
                             </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+                          );
+                        })
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             );
           })
@@ -1256,20 +1081,21 @@ export const CurriculumNavigator = ({
             )}
 
             <div className="space-y-3 text-xs">
-              {availableSeries.length > 0 && (
+              {availableDomains.length > 0 && (
                 <div>
-                  <label className="font-semibold text-slate-600">Parent Hierarchy Series</label>
+                  <label className="font-semibold text-slate-600">Parent Domain *</label>
                   <select
-                    value={moduleForm.series_id}
+                    value={moduleForm.domain_id}
                     onChange={(e) => {
-                      setModuleForm({ ...moduleForm, series_id: e.target.value });
+                      setModuleForm({ ...moduleForm, domain_id: e.target.value });
                       setModuleError(null);
                     }}
                     className="w-full mt-1 p-2 border border-slate-200 rounded focus:outline-none focus:border-blue-500"
                   >
-                    {availableSeries.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.label}
+                    <option value="">Select Domain...</option>
+                    {availableDomains.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.name}
                       </option>
                     ))}
                   </select>
@@ -1690,176 +1516,6 @@ export const CurriculumNavigator = ({
         </div>
       )}
 
-      {/* ── Modal: Create World ── */}
-      {showAddWorldModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-2xl border border-slate-200 max-w-sm w-full p-5 space-y-4 text-slate-800">
-            <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-              <Compass className="w-4 h-4 text-sky-600" />
-              <span>Create New World</span>
-            </h3>
-
-            {worldError && (
-              <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700 flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0" />
-                <span>{worldError}</span>
-              </div>
-            )}
-
-            <div className="space-y-3 text-xs">
-              <div>
-                <label className="font-semibold text-slate-600">Parent Domain *</label>
-                <select
-                  value={worldForm.domain_id}
-                  onChange={(e) => {
-                    setWorldForm({ ...worldForm, domain_id: e.target.value });
-                    setWorldError(null);
-                  }}
-                  className="w-full mt-1 p-2 border border-slate-200 rounded focus:outline-none focus:border-sky-500"
-                >
-                  {availableDomains.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="font-semibold text-slate-600">World Name *</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Trading Foundations, Market Microstructure"
-                  value={worldForm.name}
-                  onChange={(e) => {
-                    setWorldForm({ ...worldForm, name: e.target.value });
-                    setWorldError(null);
-                  }}
-                  className="w-full mt-1 p-2 border border-slate-200 rounded focus:outline-none focus:border-sky-500"
-                />
-              </div>
-              <div>
-                <label className="font-semibold text-slate-600">Description</label>
-                <textarea
-                  rows={2}
-                  placeholder="Thematic learning world description..."
-                  value={worldForm.description}
-                  onChange={(e) => {
-                    setWorldForm({ ...worldForm, description: e.target.value });
-                    setWorldError(null);
-                  }}
-                  className="w-full mt-1 p-2 border border-slate-200 rounded focus:outline-none focus:border-sky-500 resize-none"
-                />
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-              <button
-                onClick={() => {
-                  setShowAddWorldModal(false);
-                  setWorldError(null);
-                }}
-                className="px-3 py-1.5 rounded text-xs font-semibold text-slate-600 hover:bg-slate-100"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleConfirmCreateWorld}
-                disabled={!worldForm.name.trim() || !worldForm.domain_id || isSubmittingWorld}
-                className="px-3.5 py-1.5 rounded text-xs font-bold bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white shadow-sm flex items-center gap-1.5"
-              >
-                {isSubmittingWorld && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                <span>{isSubmittingWorld ? 'Creating...' : 'Create World'}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Modal: Create Series ── */}
-      {showAddSeriesModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-2xl border border-slate-200 max-w-sm w-full p-5 space-y-4 text-slate-800">
-            <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-              <Layers className="w-4 h-4 text-emerald-600" />
-              <span>Create New Series</span>
-            </h3>
-
-            {seriesError && (
-              <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700 flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0" />
-                <span>{seriesError}</span>
-              </div>
-            )}
-
-            <div className="space-y-3 text-xs">
-              <div>
-                <label className="font-semibold text-slate-600">Parent World *</label>
-                <select
-                  value={seriesForm.world_id}
-                  onChange={(e) => {
-                    setSeriesForm({ ...seriesForm, world_id: e.target.value });
-                    setSeriesError(null);
-                  }}
-                  className="w-full mt-1 p-2 border border-slate-200 rounded focus:outline-none focus:border-emerald-500"
-                >
-                  {availableWorlds.map((w) => (
-                    <option key={w.id} value={w.id}>
-                      {w.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="font-semibold text-slate-600">Series Name *</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Core Curriculum, Advanced Patterns"
-                  value={seriesForm.name}
-                  onChange={(e) => {
-                    setSeriesForm({ ...seriesForm, name: e.target.value });
-                    setSeriesError(null);
-                  }}
-                  className="w-full mt-1 p-2 border border-slate-200 rounded focus:outline-none focus:border-emerald-500"
-                />
-              </div>
-              <div>
-                <label className="font-semibold text-slate-600">Description</label>
-                <textarea
-                  rows={2}
-                  placeholder="Series / track collection description..."
-                  value={seriesForm.description}
-                  onChange={(e) => {
-                    setSeriesForm({ ...seriesForm, description: e.target.value });
-                    setSeriesError(null);
-                  }}
-                  className="w-full mt-1 p-2 border border-slate-200 rounded focus:outline-none focus:border-emerald-500 resize-none"
-                />
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-              <button
-                onClick={() => {
-                  setShowAddSeriesModal(false);
-                  setSeriesError(null);
-                }}
-                className="px-3 py-1.5 rounded text-xs font-semibold text-slate-600 hover:bg-slate-100"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleConfirmCreateSeries}
-                disabled={!seriesForm.name.trim() || !seriesForm.world_id || isSubmittingSeries}
-                className="px-3.5 py-1.5 rounded text-xs font-bold bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white shadow-sm flex items-center gap-1.5"
-              >
-                {isSubmittingSeries && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                <span>{isSubmittingSeries ? 'Creating...' : 'Create Series'}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* ── Shared Delete Confirmation Dialog ── */}
       {deleteDialog && (
         <div className="fixed inset-0 z-[60] bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
@@ -1877,9 +1533,7 @@ export const CurriculumNavigator = ({
             <div className="p-3 bg-rose-50 border border-rose-100 rounded-lg space-y-1.5">
               <p className="text-xs text-rose-800 font-medium">
                 Are you sure you want to delete <span className="font-black">"{deleteDialog.name}"</span>?
-                {deleteDialog.type === 'Domain' && ' This will permanently delete the entire domain, all its child worlds, series, and modules.'}
-                {deleteDialog.type === 'World' && ' This will permanently delete the entire world, all its child series, and modules.'}
-                {deleteDialog.type === 'Series' && ' This will permanently delete the entire series and all its child modules.'}
+                {deleteDialog.type === 'Domain' && ' This will permanently delete the entire domain, all its child modules, units, and lessons.'}
                 {deleteDialog.type === 'Module' && ' This will permanently delete the entire module, all its child units, and all lessons inside it at once.'}
                 {deleteDialog.type === 'Unit' && ' This will permanently delete the unit and all lessons inside it at once.'}
                 {deleteDialog.type === 'Lesson' && ' This will permanently delete this lesson and all its draft versions.'}

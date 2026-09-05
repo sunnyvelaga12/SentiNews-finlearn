@@ -17,6 +17,7 @@ class Domain(Base):
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
 
     worlds = relationship("World", back_populates="domain", cascade="all, delete-orphan")
+    modules = relationship("Module", back_populates="domain", cascade="all, delete-orphan", foreign_keys="Module.domain_id")
 
 class World(Base):
     __tablename__ = "worlds"
@@ -49,24 +50,14 @@ class Series(Base):
 class Module(Base):
     """
     Curriculum Module entity.
-    Hierarchy: Domain → World → Series → Module → Unit
-
-    Module-level pedagogical metadata (learner_goal, why_this_matters, learning_outcomes,
-    completion_criteria) is stored as DB columns so that the application layer never
-    contains curriculum-specific logic. Adding a new domain (e.g. Macroeconomics, Options,
-    Financial Statements) requires only a DB record — zero Python code changes.
-
-    learning_outcomes is stored as JSONB (ordered array of strings) because:
-    - Outcomes belong exclusively to one module (no cross-module sharing).
-    - No FK references from other tables are required for outcomes individually.
-    - Ordering is intrinsic (array index = display order).
-    - If future analytics require outcome-level tracking, a normalized table
-      can be introduced via a new migration without altering this column.
+    Direct Hierarchy: Domain → Module → Unit → Lesson
+    (Legacy support for Series is preserved via optional series_id)
     """
     __tablename__ = "modules"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    series_id = Column(UUID(as_uuid=True), ForeignKey("series.id", ondelete="CASCADE"), nullable=False)
+    domain_id = Column(UUID(as_uuid=True), ForeignKey("domains.id", ondelete="CASCADE"), nullable=True, index=True)
+    series_id = Column(UUID(as_uuid=True), ForeignKey("series.id", ondelete="CASCADE"), nullable=True)
     slug = Column(String(100), unique=True, nullable=False, index=True)
     name = Column(String(150), nullable=False)
     description = Column(Text, nullable=True)
@@ -87,7 +78,8 @@ class Module(Base):
 
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
 
-    series = relationship("Series", back_populates="modules")
+    domain = relationship("Domain", back_populates="modules", foreign_keys=[domain_id])
+    series = relationship("Series", back_populates="modules", foreign_keys=[series_id])
     units = relationship("Unit", back_populates="module", cascade="all, delete-orphan", order_by="Unit.order_index")
 
 class Unit(Base):
