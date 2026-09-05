@@ -1,17 +1,25 @@
-import React from 'react';
+import React, { Suspense } from 'react';
 import { createBrowserRouter, Outlet, Link, useLocation, Navigate } from 'react-router-dom';
-import { LearnPage } from '../../features/learning/LearnPage';
-import { ModulePage } from '../../features/learning/modules/ModulePage';
-import { ModuleUnitsPage } from '../../features/learning/modules/ModuleUnitsPage';
-import { LessonOverviewPage } from '../../features/learning/lessons/LessonOverviewPage';
-import { SessionPlayerPage } from '../../features/learning/SessionPlayerPage';
-import { YouPage } from '../../features/you/YouPage';
-import { DiagnosticPage } from '../../features/diagnostic/DiagnosticPage';
-import { ReviewPage } from '../../features/review/ReviewPage';
-import { SchoolPage } from '../../features/school/SchoolPage';
-import { SchoolSlugPage } from '../../features/school/SchoolSlugPage';
-import { AdminStudioPage } from '../../features/admin/AdminStudioPage';
 import { BookOpen, User } from 'lucide-react';
+
+const LearnPage = React.lazy(() => import('../../features/learning/LearnPage').then(m => ({ default: m.LearnPage })));
+const ModulePage = React.lazy(() => import('../../features/learning/modules/ModulePage').then(m => ({ default: m.ModulePage })));
+const ModuleUnitsPage = React.lazy(() => import('../../features/learning/modules/ModuleUnitsPage').then(m => ({ default: m.ModuleUnitsPage })));
+const LessonOverviewPage = React.lazy(() => import('../../features/learning/lessons/LessonOverviewPage').then(m => ({ default: m.LessonOverviewPage })));
+const SessionPlayerPage = React.lazy(() => import('../../features/learning/SessionPlayerPage').then(m => ({ default: m.SessionPlayerPage })));
+const YouPage = React.lazy(() => import('../../features/you/YouPage').then(m => ({ default: m.YouPage })));
+const DiagnosticPage = React.lazy(() => import('../../features/diagnostic/DiagnosticPage').then(m => ({ default: m.DiagnosticPage })));
+const ReviewPage = React.lazy(() => import('../../features/review/ReviewPage').then(m => ({ default: m.ReviewPage })));
+const SchoolPage = React.lazy(() => import('../../features/school/SchoolPage').then(m => ({ default: m.SchoolPage })));
+const SchoolSlugPage = React.lazy(() => import('../../features/school/SchoolSlugPage').then(m => ({ default: m.SchoolSlugPage })));
+const AdminStudioPage = React.lazy(() => import('../../features/admin/AdminStudioPage').then(m => ({ default: m.AdminStudioPage })));
+
+const RouteLoadingFallback = () => (
+  <div className="min-h-[50vh] flex flex-col items-center justify-center gap-3 p-8">
+    <div className="w-8 h-8 rounded-full border-2 border-slate-200 border-t-slate-900 animate-spin" />
+    <span className="text-xs font-semibold text-slate-500 tracking-wide">Loading workspace...</span>
+  </div>
+);
 const AppLayout = () => {
     const location = useLocation();
     const navItems = [
@@ -51,7 +59,9 @@ const AppLayout = () => {
 
       {/* Main Content Area */}
       <main className="flex-1 pb-24 md:pb-12">
-        <Outlet />
+        <Suspense fallback={<RouteLoadingFallback />}>
+          <Outlet />
+        </Suspense>
       </main>
 
       {/* Mobile Bottom Learner Navigation Bar */}

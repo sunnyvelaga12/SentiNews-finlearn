@@ -13,7 +13,18 @@ from app.models.concept import Concept
 from app.models.lesson import Lesson, LessonVersion
 
 
+import time
+
+
 class CurriculumContentService:
+    _catalog_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+    CATALOG_CACHE_TTL_SECONDS: float = 30.0
+
+    @classmethod
+    def clear_catalog_cache(cls):
+        """Invalidates all cached catalog responses."""
+        cls._catalog_cache.clear()
+
     @classmethod
     async def get_published_modules(cls, db: AsyncSession) -> List[Module]:
         """Returns all modules ordered by order_index ascending."""
@@ -33,10 +44,18 @@ class CurriculumContentService:
         """
         High-performance catalog projection for the Learner Homepage.
         - Avoids N+1 queries.
+        - In-memory 30s TTL cache for ultra-low latency (<2ms).
         - Defer blocks_json and questions_json to minimize I/O and memory overhead.
         - Computes exact unit and lesson stats using lightweight batch queries.
         - Supports domain category filtering and offset pagination.
         """
+        cache_key = f"{user_id}:{domain_slug}:{limit}:{offset}"
+        now = time.time()
+        if cache_key in cls._catalog_cache:
+            cached_time, cached_val = cls._catalog_cache[cache_key]
+            if (now - cached_time) < cls.CATALOG_CACHE_TTL_SECONDS:
+                return cached_val
+
         # 1. Fetch domains for domain navigation tabs
         dom_stmt = select(Domain.slug, Domain.name).order_by(Domain.order_index.asc())
         dom_res = await db.execute(dom_stmt)
@@ -65,7 +84,7 @@ class CurriculumContentService:
 
         paged_slice = all_matching[offset : offset + limit] if limit > 0 else all_matching[offset:]
         if not paged_slice:
-            return {
+            empty_res = {
                 "modules": [],
                 "total_items": total_items,
                 "domains": domains_list,
@@ -73,6 +92,8 @@ class CurriculumContentService:
                 "limit": limit,
                 "offset": offset,
             }
+            cls._catalog_cache[cache_key] = (now, empty_res)
+            return empty_res
 
         paged_module_ids = [m.id for m, _, _ in paged_slice]
 
@@ -155,7 +176,7 @@ class CurriculumContentService:
                 }
             })
 
-        return {
+        result = {
             "modules": catalog,
             "total_items": total_items,
             "domains": domains_list,
@@ -163,6 +184,8 @@ class CurriculumContentService:
             "limit": limit,
             "offset": offset,
         }
+        cls._catalog_cache[cache_key] = (now, result)
+        return result
 
     @classmethod
     async def get_module_by_slug_or_id(

@@ -1,7 +1,7 @@
 import uuid
 import hashlib
 from datetime import datetime, timezone
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple, Set
 from fastapi import APIRouter, Depends, HTTPException, Request, Header
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -149,6 +149,7 @@ async def create_module(
     db.add(new_module)
     await db.commit()
     await db.refresh(new_module)
+    CurriculumContentService.clear_catalog_cache()
     return {
         "status": "SUCCESS",
         "module_id": str(new_module.id),
@@ -192,6 +193,7 @@ async def update_module(
 
     await db.commit()
     await db.refresh(mod)
+    CurriculumContentService.clear_catalog_cache()
     return {"status": "SUCCESS", "module": {"id": str(mod.id), "slug": mod.slug, "name": mod.name}}
 
 
@@ -529,6 +531,7 @@ async def cascade_delete_module_internal(db: AsyncSession, module_id: uuid.UUID)
         await db.execute(sql_delete(Concept).where(Concept.module_id == module_id))
 
     await db.execute(sql_delete(Module).where(Module.id == module_id))
+    CurriculumContentService.clear_catalog_cache()
     return len(units), len(lesson_ids)
 
 

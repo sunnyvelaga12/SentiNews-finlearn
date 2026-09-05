@@ -3,6 +3,7 @@ import uuid
 from datetime import datetime, timezone
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from app.core.config import settings
@@ -25,6 +26,9 @@ app = FastAPI(
     openapi_url=f"{settings.API_V1_STR}/openapi.json",
     docs_url=f"{settings.API_V1_STR}/docs"
 )
+
+# GZip Compression for payloads >= 1000 bytes
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # CORS Setup
 app.add_middleware(
