@@ -29,6 +29,14 @@ class Settings(BaseSettings):
     def validate_db_url(cls, v: str) -> str:
         if "sqlite" in v.lower():
             raise ValueError("SQLite is strictly banned. PostgreSQL must be used across all environments.")
+        # Auto-convert standard postgresql:// or postgres:// to asyncpg dialect
+        if v.startswith("postgres://"):
+            v = v.replace("postgres://", "postgresql+asyncpg://", 1)
+        elif v.startswith("postgresql://") and not v.startswith("postgresql+asyncpg://"):
+            v = v.replace("postgresql://", "postgresql+asyncpg://", 1)
+        # Normalize sslmode=require to ssl=require for asyncpg compatibility
+        if "sslmode=" in v:
+            v = v.replace("sslmode=require", "ssl=require").replace("sslmode=prefer", "ssl=prefer")
         return v
 
     class Config:
