@@ -1,6 +1,25 @@
 import React, { useState } from 'react';
 import { Save, CheckCircle2, Play, Send, ShieldCheck, AlertOctagon, RotateCcw, Sparkles, GitBranch, FileCheck, MessageSquare, } from 'lucide-react';
-export const GovernanceBar = ({ status, versionNumber, userRole = 'CONTENT_EDITOR', isPublishable, isSaving = false, hasUnsavedChanges = false, lastSavedText = 'Saved just now', occConflict = null, onSaveDraft, onValidate, onOpenPreview, onSubmitForReview, onDirectApprove, onApproveReview, onRequestChanges, onPublish, onResolveOccConflict, }) => {
+export const GovernanceBar = ({
+  status,
+  versionNumber,
+  userRole = 'CONTENT_EDITOR',
+  isPublishable,
+  isSaving = false,
+  hasUnsavedChanges = false,
+  lastSavedText = 'Saved just now',
+  occConflict = null,
+  onSaveDraft,
+  onForkDraft,
+  onValidate,
+  onOpenPreview,
+  onSubmitForReview,
+  onDirectApprove,
+  onApproveReview,
+  onRequestChanges,
+  onPublish,
+  onResolveOccConflict,
+}) => {
     const [showReviewNotesModal, setShowReviewNotesModal] = useState(false);
     const [reviewAction, setReviewAction] = useState('APPROVE');
     const [reviewNotes, setReviewNotes] = useState('');
@@ -8,18 +27,27 @@ export const GovernanceBar = ({ status, versionNumber, userRole = 'CONTENT_EDITO
     const renderStatusPill = () => {
         switch (status) {
             case 'PUBLISHED':
-                return (<span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-emerald-500/10 text-emerald-600 border border-emerald-500/30">
-            <CheckCircle2 className="w-3.5 h-3.5"/> Published (Immutable)
-          </span>);
+                return (
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-emerald-500/10 text-emerald-600 border border-emerald-500/30">
+                      <CheckCircle2 className="w-3.5 h-3.5"/> Published · v{versionNumber}
+                    </span>
+                    {hasUnsavedChanges && (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-amber-500/10 text-amber-700 border border-amber-300 animate-pulse">
+                        <GitBranch className="w-3 h-3"/> Will save as v{versionNumber + 1}
+                      </span>
+                    )}
+                  </div>
+                );
             case 'APPROVED':
                 return (<span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-blue-500/10 text-blue-600 border border-blue-500/30">
-            <FileCheck className="w-3.5 h-3.5"/> Approved for Release
+            <FileCheck className="w-3.5 h-3.5"/> Approved for Release · v{versionNumber}
           </span>);
             case 'EDITOR_REVIEW':
             case 'FINANCE_REVIEW':
             case 'COMPLIANCE_REVIEW':
                 return (<span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-amber-500/10 text-amber-600 border border-amber-500/30">
-            <ShieldCheck className="w-3.5 h-3.5"/> In Governance Review
+            <ShieldCheck className="w-3.5 h-3.5"/> In Governance Review · v{versionNumber}
           </span>);
             case 'DRAFT':
             default:
@@ -62,8 +90,28 @@ export const GovernanceBar = ({ status, versionNumber, userRole = 'CONTENT_EDITO
 
         {/* Right: Role-Based Progressively Stronger Action Buttons */}
         <div className="flex items-center gap-2.5">
-          {/* Action 1: Save Draft */}
-          {status !== 'PUBLISHED' && (
+          {/* Action 1: Save Draft or Edit/Save New Version */}
+          {status === 'PUBLISHED' ? (
+            <button
+              onClick={onForkDraft || onSaveDraft}
+              disabled={isSaving}
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg border text-xs font-bold transition-all shadow-sm active:scale-95 ${
+                hasUnsavedChanges
+                  ? 'bg-blue-600 hover:bg-blue-500 text-white border-blue-600 shadow-blue-500/20'
+                  : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-300'
+              }`}
+              title={hasUnsavedChanges ? `Save your edits into new draft v${versionNumber + 1}` : `Create a new draft version v${versionNumber + 1} to edit`}
+            >
+              <GitBranch className={`w-3.5 h-3.5 ${isSaving ? 'animate-spin' : ''}`}/>
+              <span>
+                {isSaving
+                  ? 'Saving Version...'
+                  : hasUnsavedChanges
+                  ? `Save as New Version (v${versionNumber + 1})`
+                  : `Edit New Version (v${versionNumber + 1})`}
+              </span>
+            </button>
+          ) : (
             <button
               onClick={onSaveDraft}
               disabled={isSaving}
@@ -133,16 +181,32 @@ export const GovernanceBar = ({ status, versionNumber, userRole = 'CONTENT_EDITO
             </div>
           )}
 
-          {/* Action 7: Direct Publish */}
-          {status !== 'PUBLISHED' && (
-            <button
-              onClick={onPublish}
-              className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-black tracking-wide shadow-md transition-all hover:scale-[1.02] active:scale-95"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-emerald-200"/>
-              <span>Publish Lesson</span>
-            </button>
-          )}
+          {/* Action 7: Publish Lesson */}
+          <button
+            onClick={onPublish}
+            disabled={status === 'PUBLISHED' && !hasUnsavedChanges}
+            className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-black tracking-wide shadow-md transition-all ${
+              status === 'PUBLISHED' && !hasUnsavedChanges
+                ? 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200 shadow-none'
+                : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white hover:scale-[1.02] active:scale-95'
+            }`}
+            title={
+              status === 'PUBLISHED' && !hasUnsavedChanges
+                ? 'This version is published to learners. Edit blocks to publish an updated version.'
+                : status === 'PUBLISHED'
+                ? `Publish edits immediately as new version v${versionNumber + 1}`
+                : 'Publish this version to live learners'
+            }
+          >
+            <Sparkles className={`w-3.5 h-3.5 ${status === 'PUBLISHED' && !hasUnsavedChanges ? 'text-slate-400' : 'text-emerald-200'}`}/>
+            <span>
+              {status === 'PUBLISHED'
+                ? hasUnsavedChanges
+                  ? `Publish New Version (v${versionNumber + 1})`
+                  : 'Published'
+                : 'Publish Lesson'}
+            </span>
+          </button>
         </div>
       </div>
 

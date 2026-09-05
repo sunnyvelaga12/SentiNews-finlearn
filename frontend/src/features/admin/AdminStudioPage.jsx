@@ -62,6 +62,7 @@ export const AdminStudioPage = () => {
         learningObjectives,
         currentVersionId,
         versionNumber,
+        status,
     });
     useEffect(() => {
         latestStateRef.current = {
@@ -73,8 +74,9 @@ export const AdminStudioPage = () => {
             learningObjectives,
             currentVersionId,
             versionNumber,
+            status,
         };
-    }, [blocks, lessonTitle, lessonSlug, durationMinutes, level, learningObjectives, currentVersionId, versionNumber]);
+    }, [blocks, lessonTitle, lessonSlug, durationMinutes, level, learningObjectives, currentVersionId, versionNumber, status]);
 
     const isSavingRef = useRef(false);
     const hasPendingChangesRef = useRef(false);
@@ -388,11 +390,77 @@ export const AdminStudioPage = () => {
             learning_objectives: learningObjectives,
         }, blocks);
     }, [lessonTitle, level, learningObjectives, blocks]);
+    // ── 3b. Fork Draft for Versioning (Published -> vNext DRAFT) ──────────────
+    const handleForkDraft = async (overridePayload = null) => {
+        const stateToSave = latestStateRef.current;
+        if (!stateToSave.currentVersionId || isSavingRef.current) return false;
+        try {
+            isSavingRef.current = true;
+            setIsSaving(true);
+            const payload = overridePayload || {
+                title: stateToSave.lessonTitle,
+                slug: stateToSave.lessonSlug,
+                duration_minutes: stateToSave.durationMinutes,
+                learning_objectives: stateToSave.learningObjectives,
+                blocks_json: stateToSave.blocks,
+                blocks: stateToSave.blocks,
+            };
+            const data = await apiClient(`/api/v1/admin/lessons/${stateToSave.currentVersionId}/fork-draft`, {
+                method: 'POST',
+                body: JSON.stringify(payload),
+            });
+            if (data?.version_id) {
+                setCurrentVersionId(data.version_id);
+                setVersionNumber(data.version_number);
+                setStatus(data.lesson_status || 'DRAFT');
+                latestStateRef.current.currentVersionId = data.version_id;
+                latestStateRef.current.versionNumber = data.version_number;
+                latestStateRef.current.status = data.lesson_status || 'DRAFT';
+                if (selectedLesson) {
+                    const updatedLesson = {
+                        ...selectedLesson,
+                        version_id: data.version_id,
+                        version_number: data.version_number,
+                        status: data.lesson_status || 'DRAFT',
+                    };
+                    setSelectedLesson(updatedLesson);
+                    selectedLessonRef.current = updatedLesson;
+                    persistActiveContext(updatedLesson.id, activeBlockIndex);
+                }
+                if (typeof window !== 'undefined' && stateToSave.currentVersionId) {
+                    try {
+                        localStorage.removeItem(`lcms_draft_backup_${stateToSave.currentVersionId}`);
+                    } catch (e) {}
+                }
+                hasPendingChangesRef.current = false;
+                setHasUnsavedChanges(false);
+                setLastSavedTime(new Date());
+                setOccConflict(null);
+                await fetchCurriculumTree(selectedLesson?.id);
+                return data;
+            }
+            return false;
+        } catch (err) {
+            console.error('Failed to fork new draft version:', err);
+            return false;
+        } finally {
+            isSavingRef.current = false;
+            setIsSaving(false);
+        }
+    };
+
     // ── 4. Save Draft with OCC (If-Match) ───────────────────────────────────────
     const handleSaveDraft = async () => {
         const stateToSave = latestStateRef.current;
         if (!stateToSave.currentVersionId || isSavingRef.current)
             return false;
+
+        // If current status is PUBLISHED, saving MUST fork or update a draft version
+        if (stateToSave.status === 'PUBLISHED' || status === 'PUBLISHED') {
+            const forkResult = await handleForkDraft();
+            return !!forkResult;
+        }
+
         try {
             isSavingRef.current = true;
             setIsSaving(true);
@@ -412,6 +480,22 @@ export const AdminStudioPage = () => {
                 body: JSON.stringify(payload),
             });
             if (data) {
+                if (data.version_id && data.version_id !== stateToSave.currentVersionId) {
+                    setCurrentVersionId(data.version_id);
+                    latestStateRef.current.currentVersionId = data.version_id;
+                    setStatus(data.lesson_status || 'DRAFT');
+                    latestStateRef.current.status = data.lesson_status || 'DRAFT';
+                    if (selectedLesson) {
+                        const updatedLesson = {
+                            ...selectedLesson,
+                            version_id: data.version_id,
+                            version_number: data.version_number,
+                            status: data.lesson_status || 'DRAFT',
+                        };
+                        setSelectedLesson(updatedLesson);
+                        selectedLessonRef.current = updatedLesson;
+                    }
+                }
                 setVersionNumber(data.version_number);
                 latestStateRef.current.versionNumber = data.version_number;
                 // Clear local backup once saved to backend
@@ -428,6 +512,11 @@ export const AdminStudioPage = () => {
             }
         }
         catch (err) {
+            // If the error mentions PUBLISHED or immutability, fallback to fork
+            if (err?.message?.includes('PUBLISHED') || err?.message?.includes('IMMUTABLE')) {
+                const forkResult = await handleForkDraft();
+                return !!forkResult;
+            }
             // Auto-recovery: if OCC mismatch, retry without If-Match to auto-sync with server
             if (err?.status === 409 || err?.message?.includes('OCC')) {
                 try {
@@ -716,15 +805,30 @@ export const AdminStudioPage = () => {
     };
 
     const handlePublish = async () => {
-        if (!selectedLesson?.id || !currentVersionId) {
+        if (!selectedLesson?.id || !latestStateRef.current.currentVersionId) {
             alert('No active lesson version selected to publish.');
             return;
         }
         try {
-            await handleSaveDraft();
-            // In production, ensure status is APPROVED first
-            if (status !== 'APPROVED') {
-                await apiClient(`/api/v1/admin/lessons/${currentVersionId}/review`, {
+            // If current status is PUBLISHED and has changes, fork draft first
+            if (latestStateRef.current.status === 'PUBLISHED' || status === 'PUBLISHED') {
+                if (hasUnsavedChanges || hasPendingChangesRef.current) {
+                    await handleForkDraft();
+                } else {
+                    alert('This lesson version is already published. Edit content blocks to publish an updated version.');
+                    return;
+                }
+            } else {
+                await handleSaveDraft();
+            }
+
+            // Fresh version ID from ref (in case handleForkDraft just created a new draft!)
+            const targetVersionId = latestStateRef.current.currentVersionId;
+            const targetStatus = latestStateRef.current.status;
+
+            // In production/dev, ensure status is APPROVED first
+            if (targetStatus !== 'APPROVED') {
+                await apiClient(`/api/v1/admin/lessons/${targetVersionId}/review`, {
                     method: 'POST',
                     body: JSON.stringify({
                         review_role: userRole || 'SUPER_ADMIN',
@@ -733,17 +837,31 @@ export const AdminStudioPage = () => {
                     }),
                 });
                 setStatus('APPROVED');
+                latestStateRef.current.status = 'APPROVED';
             }
             await apiClient(`/api/v1/lessons/${selectedLesson.id}/publish`, {
                 method: 'POST',
                 body: JSON.stringify({
-                    version_id: currentVersionId,
+                    version_id: targetVersionId,
                     notes: 'Approved publication to PostgreSQL database.',
                 }),
             });
             setStatus('PUBLISHED');
-            await fetchCurriculumTree();
-            alert('Lesson published successfully to production database!');
+            latestStateRef.current.status = 'PUBLISHED';
+            if (selectedLesson) {
+                const pubLesson = {
+                    ...selectedLesson,
+                    version_id: targetVersionId,
+                    version_number: latestStateRef.current.versionNumber,
+                    status: 'PUBLISHED',
+                };
+                setSelectedLesson(pubLesson);
+                selectedLessonRef.current = pubLesson;
+            }
+            hasPendingChangesRef.current = false;
+            setHasUnsavedChanges(false);
+            await fetchCurriculumTree(selectedLesson.id);
+            alert(`Lesson v${latestStateRef.current.versionNumber} published successfully to production database!`);
         }
         catch (err) {
             console.error('Failed to publish lesson:', err);
@@ -1177,6 +1295,7 @@ export const AdminStudioPage = () => {
           lastSavedText={lastSavedText}
           occConflict={occConflict}
           onSaveDraft={handleSaveDraft}
+          onForkDraft={handleForkDraft}
           onValidate={() => setShowValidationModal(true)}
           onOpenPreview={async () => {
             if (hasUnsavedChanges) {

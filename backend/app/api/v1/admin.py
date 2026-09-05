@@ -78,6 +78,134 @@ async def create_draft(
         raise HTTPException(status_code=400, detail=f"DRAFT_CREATION_FAILED: {str(e)}")
 
 
+@router.post("/admin/lessons/{version_id}/fork-draft")
+async def fork_draft(
+    version_id: uuid.UUID,
+    request: Request,
+    body: Optional[Dict[str, Any]] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Creates or returns an active DRAFT version for editing an already published or archived lesson.
+    If in-flight edits (title, duration_minutes, learning_objectives, blocks) are provided,
+    they are applied directly to the new draft version.
+    """
+    validate_origin_and_csrf(request)
+    actor_id, role = get_admin_actor(request, ["CONTENT_EDITOR", "SUPER_ADMIN", "ADMIN"])
+
+    try:
+        # 1. Fetch source version
+        v_stmt = select(LessonVersion).where(LessonVersion.id == version_id)
+        v_res = await db.execute(v_stmt)
+        source_version = v_res.scalar_one_or_none()
+        if not source_version:
+            raise HTTPException(status_code=404, detail="SOURCE_LESSON_VERSION_NOT_FOUND")
+
+        lesson_id = source_version.lesson_id
+
+        # 2. Check if an active un-published draft already exists for this lesson
+        active_draft_stmt = (
+            select(LessonVersion)
+            .where(
+                LessonVersion.lesson_id == lesson_id,
+                LessonVersion.status.in_(["DRAFT", "EDITOR_REVIEW", "FINANCE_REVIEW", "COMPLIANCE_REVIEW", "APPROVED"])
+            )
+            .order_by(LessonVersion.version_number.desc())
+        )
+        existing_draft = (await db.execute(active_draft_stmt)).scalars().first()
+
+        data = body or {}
+
+        # If an active draft already exists:
+        if existing_draft:
+            if data:
+                raw_blocks = data.get("blocks") if "blocks" in data else data.get("blocks_json")
+                if raw_blocks is not None:
+                    existing_draft.blocks_json = [b.model_dump() if hasattr(b, "model_dump") else b for b in raw_blocks]
+                if "title" in data and data["title"]:
+                    existing_draft.title = data["title"]
+                if "duration_minutes" in data and data["duration_minutes"] is not None:
+                    existing_draft.duration_minutes = data["duration_minutes"]
+                if "learning_objectives" in data and data["learning_objectives"] is not None:
+                    existing_draft.learning_objectives = data["learning_objectives"]
+                if "questions" in data and data["questions"] is not None:
+                    existing_draft.questions_json = [q.model_dump() if hasattr(q, "model_dump") else q for q in data["questions"]]
+
+            await db.commit()
+            return {
+                "status": "SUCCESS",
+                "version_id": str(existing_draft.id),
+                "lesson_id": str(lesson_id),
+                "version_number": existing_draft.version_number,
+                "lesson_status": existing_draft.status,
+                "title": existing_draft.title,
+                "is_existing_draft": True
+            }
+
+        # 3. Otherwise, create a new draft incrementing max version_number
+        max_stmt = (
+            select(LessonVersion.version_number)
+            .where(LessonVersion.lesson_id == lesson_id)
+            .order_by(LessonVersion.version_number.desc())
+        )
+        max_v = (await db.execute(max_stmt)).scalars().first() or 1
+        next_v = max_v + 1
+
+        raw_blocks = data.get("blocks") if "blocks" in data else data.get("blocks_json")
+        if raw_blocks is None:
+            raw_blocks = source_version.blocks_json or []
+
+        valid_actor_id = None
+        if actor_id:
+            u_stmt = select(User.id).where(User.id == actor_id)
+            valid_actor_id = (await db.execute(u_stmt)).scalar_one_or_none()
+
+        new_draft = LessonVersion(
+            id=uuid.uuid4(),
+            lesson_id=lesson_id,
+            version_number=next_v,
+            title=data.get("title") or source_version.title,
+            duration_minutes=data.get("duration_minutes") or source_version.duration_minutes or 5,
+            learning_objectives=data.get("learning_objectives") or source_version.learning_objectives or ["Understand core concepts and application"],
+            concept_ids=source_version.concept_ids or [],
+            prerequisite_ids=source_version.prerequisite_ids or [],
+            blocks_json=[b.model_dump() if hasattr(b, "model_dump") else b for b in raw_blocks],
+            questions_json=data.get("questions") or source_version.questions_json or [],
+            status="DRAFT",
+            created_by=valid_actor_id,
+        )
+        db.add(new_draft)
+        await db.flush()
+
+        audit = AuditLog(
+            id=uuid.uuid4(),
+            actor_id=valid_actor_id,
+            action="FORK_LESSON_DRAFT_VERSION",
+            resource_type="LessonVersion",
+            resource_id=str(new_draft.id),
+            reason=f"Forked new draft v{next_v} from v{source_version.version_number}",
+            new_state={"version_number": next_v, "status": "DRAFT", "source_version_id": str(source_version.id)}
+        )
+        db.add(audit)
+        await db.commit()
+
+        return {
+            "status": "SUCCESS",
+            "version_id": str(new_draft.id),
+            "lesson_id": str(lesson_id),
+            "version_number": new_draft.version_number,
+            "lesson_status": new_draft.status,
+            "title": new_draft.title,
+            "is_existing_draft": False
+        }
+    except HTTPException:
+        await db.rollback()
+        raise
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"FORK_DRAFT_FAILED: {str(e)}")
+
+
 @router.patch("/admin/lessons/draft/{version_id}")
 async def update_draft(
     version_id: uuid.UUID,
@@ -88,6 +216,90 @@ async def update_draft(
 ):
     validate_origin_and_csrf(request)
     actor_id, role = get_admin_actor(request, ["CONTENT_EDITOR", "SUPER_ADMIN", "ADMIN"])
+
+    # Check if target version is PUBLISHED: if so, seamlessly fork into a DRAFT version
+    v_stmt = select(LessonVersion).where(LessonVersion.id == version_id)
+    v_res = await db.execute(v_stmt)
+    target_version = v_res.scalar_one_or_none()
+    if target_version and target_version.status == "PUBLISHED":
+        active_draft = (await db.execute(
+            select(LessonVersion)
+            .where(
+                LessonVersion.lesson_id == target_version.lesson_id,
+                LessonVersion.status.in_(["DRAFT", "EDITOR_REVIEW", "FINANCE_REVIEW", "COMPLIANCE_REVIEW", "APPROVED"])
+            )
+            .order_by(LessonVersion.version_number.desc())
+        )).scalars().first()
+
+        update_dict = req.model_dump(exclude_unset=True)
+        raw_blocks = update_dict.get("blocks") if "blocks" in update_dict else update_dict.get("blocks_json")
+
+        if active_draft:
+            if raw_blocks is not None:
+                active_draft.blocks_json = [b.model_dump() if hasattr(b, "model_dump") else b for b in raw_blocks]
+            if "title" in update_dict and update_dict["title"]:
+                active_draft.title = update_dict["title"]
+            if "duration_minutes" in update_dict and update_dict["duration_minutes"] is not None:
+                active_draft.duration_minutes = update_dict["duration_minutes"]
+            if "learning_objectives" in update_dict and update_dict["learning_objectives"] is not None:
+                active_draft.learning_objectives = update_dict["learning_objectives"]
+            if "questions" in update_dict and update_dict["questions"] is not None:
+                active_draft.questions_json = [q.model_dump() if hasattr(q, "model_dump") else q for q in update_dict["questions"]]
+            await db.commit()
+            return {
+                "status": "SUCCESS",
+                "version_id": str(active_draft.id),
+                "version_number": active_draft.version_number,
+                "lesson_status": active_draft.status,
+                "forked": False
+            }
+        else:
+            max_v = (await db.execute(
+                select(LessonVersion.version_number)
+                .where(LessonVersion.lesson_id == target_version.lesson_id)
+                .order_by(LessonVersion.version_number.desc())
+            )).scalars().first() or 1
+            next_v = max_v + 1
+
+            valid_actor_id = None
+            if actor_id:
+                valid_actor_id = (await db.execute(select(User.id).where(User.id == actor_id))).scalar_one_or_none()
+
+            new_draft = LessonVersion(
+                id=uuid.uuid4(),
+                lesson_id=target_version.lesson_id,
+                version_number=next_v,
+                title=update_dict.get("title") or target_version.title,
+                duration_minutes=update_dict.get("duration_minutes") or target_version.duration_minutes or 5,
+                learning_objectives=update_dict.get("learning_objectives") or target_version.learning_objectives or ["Understand core concepts and application"],
+                concept_ids=target_version.concept_ids or [],
+                prerequisite_ids=target_version.prerequisite_ids or [],
+                blocks_json=[b.model_dump() if hasattr(b, "model_dump") else b for b in (raw_blocks if raw_blocks is not None else (target_version.blocks_json or []))],
+                questions_json=update_dict.get("questions") or target_version.questions_json or [],
+                status="DRAFT",
+                created_by=valid_actor_id,
+            )
+            db.add(new_draft)
+            await db.flush()
+
+            audit = AuditLog(
+                id=uuid.uuid4(),
+                actor_id=valid_actor_id,
+                action="FORK_LESSON_DRAFT_VERSION",
+                resource_type="LessonVersion",
+                resource_id=str(new_draft.id),
+                reason=f"Autoforked new draft v{next_v} from published v{target_version.version_number} during author edit",
+                new_state={"version_number": next_v, "status": "DRAFT", "source_version_id": str(target_version.id)}
+            )
+            db.add(audit)
+            await db.commit()
+            return {
+                "status": "SUCCESS",
+                "version_id": str(new_draft.id),
+                "version_number": new_draft.version_number,
+                "lesson_status": new_draft.status,
+                "forked": True
+            }
 
     expected_version = req.expected_version
     if expected_version is None and if_match:
