@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Save, CheckCircle2, Play, Send, ShieldCheck, AlertOctagon, RotateCcw, Sparkles, GitBranch, FileCheck, MessageSquare, } from 'lucide-react';
-export const GovernanceBar = ({ status, versionNumber, userRole = 'CONTENT_EDITOR', isPublishable, isSaving = false, hasUnsavedChanges = false, lastSavedText = 'Saved just now', occConflict = null, onSaveDraft, onValidate, onOpenPreview, onSubmitForReview, onApproveReview, onRequestChanges, onPublish, onResolveOccConflict, }) => {
+export const GovernanceBar = ({ status, versionNumber, userRole = 'CONTENT_EDITOR', isPublishable, isSaving = false, hasUnsavedChanges = false, lastSavedText = 'Saved just now', occConflict = null, onSaveDraft, onValidate, onOpenPreview, onSubmitForReview, onDirectApprove, onApproveReview, onRequestChanges, onPublish, onResolveOccConflict, }) => {
     const [showReviewNotesModal, setShowReviewNotesModal] = useState(false);
     const [reviewAction, setReviewAction] = useState('APPROVE');
     const [reviewNotes, setReviewNotes] = useState('');
@@ -53,54 +53,96 @@ export const GovernanceBar = ({ status, versionNumber, userRole = 'CONTENT_EDITO
 
           <div className="flex items-center gap-2 text-xs text-slate-400 border-l border-slate-200 pl-4">
             {isSaving ? (<span className="text-blue-600 flex items-center gap-1">
-                <RotateCcw className="w-3 h-3 animate-spin"/> Saving...
+                <RotateCcw className="w-3 h-3 animate-spin"/> Saving to database...
               </span>) : hasUnsavedChanges ? (<span className="text-amber-600 font-semibold flex items-center gap-1">
                 ● Unsaved changes
-              </span>) : (<span className="text-slate-400">{lastSavedText}</span>)}
+              </span>) : (<span className="text-slate-500 font-medium">{lastSavedText}</span>)}
           </div>
         </div>
 
         {/* Right: Role-Based Progressively Stronger Action Buttons */}
         <div className="flex items-center gap-2.5">
           {/* Action 1: Save Draft */}
-          {status === 'DRAFT' && (<button onClick={onSaveDraft} disabled={isSaving} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold transition-all shadow-sm">
-              <Save className="w-3.5 h-3.5"/>
-              <span>Save Draft</span>
-            </button>)}
+          {status !== 'PUBLISHED' && (
+            <button
+              onClick={onSaveDraft}
+              disabled={isSaving}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold transition-all shadow-sm active:scale-95"
+            >
+              <Save className={`w-3.5 h-3.5 ${isSaving ? 'animate-spin' : ''}`}/>
+              <span>{isSaving ? 'Saving...' : 'Save Draft'}</span>
+            </button>
+          )}
 
           {/* Action 2: Validate */}
-          <button onClick={onValidate} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold transition-all shadow-sm">
+          <button
+            onClick={onValidate}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold transition-all shadow-sm active:scale-95"
+          >
             <CheckCircle2 className="w-3.5 h-3.5 text-blue-600"/>
             <span>Validate</span>
           </button>
 
           {/* Action 3: Preview */}
-          <button onClick={onOpenPreview} className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg border border-slate-800 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all shadow-sm">
+          <button
+            onClick={onOpenPreview}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg border border-slate-800 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all shadow-sm active:scale-95"
+          >
             <Play className="w-3.5 h-3.5 text-blue-400"/>
             <span>Preview Mode</span>
           </button>
 
-          {/* Action 4: Submit for Review (Editor in DRAFT) */}
-          {status === 'DRAFT' && (<button onClick={onSubmitForReview} className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-extrabold transition-all shadow-sm">
-              <Send className="w-3.5 h-3.5"/>
-              <span>Submit for Review</span>
-            </button>)}
+          {/* Action 4: Direct Approve Button (Super Admin / Admin / Editor in DRAFT) */}
+          {status === 'DRAFT' && (
+            <button
+              onClick={onDirectApprove || (() => onApproveReview && onApproveReview('Approved directly by administrator.'))}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all shadow-sm active:scale-95"
+              title="Directly approve this draft for release"
+            >
+              <ShieldCheck className="w-3.5 h-3.5"/>
+              <span>Approve Lesson</span>
+            </button>
+          )}
 
-          {/* Action 5: Review Actions (Reviewers) */}
-          {['EDITOR_REVIEW', 'FINANCE_REVIEW', 'COMPLIANCE_REVIEW'].includes(status) && (<div className="flex items-center gap-2">
-              <button onClick={() => handleOpenReviewModal('REJECT')} className="px-3 py-1.5 rounded-lg border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold">
+          {/* Action 5: Submit for Review (Optional workflow) */}
+          {status === 'DRAFT' && (
+            <button
+              onClick={onSubmitForReview}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold transition-all shadow-sm active:scale-95"
+            >
+              <Send className="w-3.5 h-3.5 text-blue-600"/>
+              <span>Submit for Review</span>
+            </button>
+          )}
+
+          {/* Action 6: Review Actions (Reviewers) */}
+          {['EDITOR_REVIEW', 'FINANCE_REVIEW', 'COMPLIANCE_REVIEW'].includes(status) && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => handleOpenReviewModal('REJECT')}
+                className="px-3 py-1.5 rounded-lg border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold"
+              >
                 Request Changes
               </button>
-              <button onClick={() => handleOpenReviewModal('APPROVE')} className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-sm">
+              <button
+                onClick={() => handleOpenReviewModal('APPROVE')}
+                className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-sm"
+              >
                 Approve Review
               </button>
-            </div>)}
+            </div>
+          )}
 
-          {/* Action 6: Direct Publish (Unlocked in dev/test, requires APPROVED in production) */}
-          {status !== 'PUBLISHED' && (import.meta.env.DEV || status === 'APPROVED') && (<button onClick={onPublish} className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-black tracking-wide shadow-md transition-all hover:scale-[1.02]">
+          {/* Action 7: Direct Publish */}
+          {status !== 'PUBLISHED' && (
+            <button
+              onClick={onPublish}
+              className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-black tracking-wide shadow-md transition-all hover:scale-[1.02] active:scale-95"
+            >
               <Sparkles className="w-3.5 h-3.5 text-emerald-200"/>
               <span>Publish Lesson</span>
-            </button>)}
+            </button>
+          )}
         </div>
       </div>
 

@@ -26,6 +26,7 @@ export const ActivityRenderer = ({ activityType = 'OBSERVE', rendererType = 'CAN
         setSubmitted(false);
     };
     // Resolve visual component from the pluggable RendererRegistry
+    const VisualComponent = getRenderer(effectiveRenderer);
     const resolvedCorrectId = payload?.correct_option_id 
         || payload?.evaluation?.correct_option_id 
         || options?.find(o => o.is_correct)?.id;

@@ -3,6 +3,7 @@ import { ActivityRenderer } from '../../learning/components/ActivityRenderer';
 import { Monitor, Tablet, Smartphone, RotateCcw, ArrowLeft, ArrowRight, ShieldCheck, CheckCircle2, XCircle, AlertCircle, HelpCircle, } from 'lucide-react';
 import { getCachedMediaUrl } from '../utils/mediaResolver';
 import { resolveEndpointUrl } from '../../../services/apiClient';
+import { ErrorBoundary } from '../../../components/ErrorBoundary';
 
 export const LiveIsolatedPreview = ({
     lessonTitle,
@@ -210,24 +211,26 @@ export const LiveIsolatedPreview = ({
 
           {/* Canonical ActivityRenderer Execution */}
           <div className="flex-1">
-            <ActivityRenderer
-              activityType={block.activity_type || block.type || 'EXPERIENCE'}
-              rendererType={block.content_type || block.renderer || 'TEXT'}
-              evidenceRole={block.evidence_role || 'NONE'}
-              title={block.title}
-              prompt={block.prompt || block.content?.body || block.content?.text}
-              payload={{
-                ...(block.content || {}),
-                ...(block.payload || {}),
-                media_asset_id: block.media_asset_id,
-                url: block.media_asset_id
-                  ? getCachedMediaUrl(block.media_asset_id)
-                  : (block.content?.url || block.content?.image_url),
-              }}
-              provenance={block.source_citation || block.provenance}
-              options={null}
-              isPreview={true}
-            />
+            <ErrorBoundary title="Activity Preview Error">
+              <ActivityRenderer
+                activityType={block.activity_type || block.type || 'EXPERIENCE'}
+                rendererType={block.content_type || block.renderer || 'TEXT'}
+                evidenceRole={block.evidence_role || 'NONE'}
+                title={block.title}
+                prompt={block.prompt || block.content?.body || block.content?.text}
+                payload={{
+                  ...(block.content || {}),
+                  ...(block.payload || {}),
+                  media_asset_id: block.media_asset_id,
+                  url: block.media_asset_id
+                    ? getCachedMediaUrl(block.media_asset_id)
+                    : (block.content?.url || block.content?.image_url),
+                }}
+                provenance={block.source_citation || block.provenance}
+                options={null}
+                isPreview={true}
+              />
+            </ErrorBoundary>
           </div>
 
           {/* Multiple Choice Interactive Feedback Box (Client-Side Deterministic Evaluator) */}
