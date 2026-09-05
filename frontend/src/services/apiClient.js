@@ -22,6 +22,16 @@ export class ApiError extends Error {
     }
 }
 // Token storage & listeners
+const API_BASE_URL = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '');
+
+export const resolveEndpointUrl = (endpoint) => {
+    if (endpoint.startsWith('http://') || endpoint.startsWith('https://')) {
+        return endpoint;
+    }
+    const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+    return API_BASE_URL ? `${API_BASE_URL}${cleanEndpoint}` : cleanEndpoint;
+};
+
 let currentAccessToken = null;
 let onTokenExpiredCallback = null;
 let inFlightRefreshPromise = null;
@@ -44,7 +54,7 @@ export const refreshAccessToken = async () => {
     }
     inFlightRefreshPromise = (async () => {
         try {
-            const res = await fetch('/api/v1/auth/refresh', {
+            const res = await fetch(resolveEndpointUrl('/api/v1/auth/refresh'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'include',
@@ -83,7 +93,8 @@ export const apiClient = async (endpoint, options = {}) => {
     if (currentAccessToken && !requestHeaders['Authorization']) {
         requestHeaders['Authorization'] = `Bearer ${currentAccessToken}`;
     }
-    const response = await fetch(endpoint, {
+    const targetUrl = resolveEndpointUrl(endpoint);
+    const response = await fetch(targetUrl, {
         ...restOptions,
         headers: requestHeaders,
         credentials: 'include',
