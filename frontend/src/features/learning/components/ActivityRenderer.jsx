@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { getRenderer } from './renderers/RendererRegistry';
 import { Eye, HelpCircle, Lightbulb, Sliders, BarChart2, AlertTriangle, ArrowRight, CheckCircle2, RefreshCw, Target, } from 'lucide-react';
-export const ActivityRenderer = ({ activityType = 'OBSERVE', rendererType = 'CANDLESTICK', evidenceRole, title, prompt, payload, provenance, options, onAnswerSubmit, onInteraction, isPreview = false, className = '', }) => {
+export const ActivityRenderer = ({ activityType = 'OBSERVE', rendererType = 'TEXT', evidenceRole, title, prompt, payload, provenance, options, onAnswerSubmit, onInteraction, isPreview = false, className = '', }) => {
     const effectiveInteraction = (activityType || payload?.activity_type || 'OBSERVE').toUpperCase();
-    const effectiveRenderer = (rendererType || payload?.renderer || payload?.visual_type || 'CANDLESTICK').toUpperCase();
+    const effectiveRenderer = (rendererType || payload?.content_type || payload?.renderer || payload?.visual_type || 'TEXT').toUpperCase();
     const effectiveEvidenceRole = (evidenceRole || payload?.evidence_role || 'NONE').toUpperCase();
     const [selectedOption, setSelectedOption] = useState(null);
     const [submitted, setSubmitted] = useState(false);

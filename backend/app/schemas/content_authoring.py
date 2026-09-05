@@ -264,10 +264,11 @@ class LearnerBlockSerializer:
         
         # 1. Resolve canonical correct_option_id before scrubbing
         eval_dict = data.get("evaluation") or {}
+        options_list = data.get("options") or []
         correct_id = (
             data.get("correct_option_id")
             or eval_dict.get("correct_option_id")
-            or next((o.get("id") for o in data.get("options", []) if isinstance(o, dict) and o.get("is_correct")), None)
+            or next((o.get("id") for o in options_list if isinstance(o, dict) and o.get("is_correct")), None)
         )
 
         data.pop("evaluation", None)

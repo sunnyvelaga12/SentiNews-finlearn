@@ -21,9 +21,10 @@ import {
  * 1. Heading Renderer
  */
 export const HeadingRenderer = ({ payload }) => {
-  const level = payload?.level || 1;
-  const title = payload?.title || payload?.text || 'Key Concept';
-  const subtitle = payload?.subtitle;
+  const rawLevel = payload?.level || payload?.content?.level || 1;
+  const level = typeof rawLevel === 'string' ? (rawLevel.toUpperCase().includes('1') ? 1 : rawLevel.toUpperCase().includes('2') ? 2 : 3) : rawLevel;
+  const title = payload?.title || payload?.text || payload?.content?.title || payload?.content?.text || 'Key Concept';
+  const subtitle = payload?.subtitle || payload?.content?.subtitle;
 
   return (
     <div className="space-y-1.5 py-2">
@@ -430,17 +431,19 @@ export const FinancialStatementRenderer = ({ payload }) => {
  * 11. Text / Editorial Diagram Renderer
  */
 export const TextRenderer = ({ payload }) => {
+  const title = payload?.title || payload?.heading || payload?.content?.title || null;
+  const textContent = payload?.text || payload?.content?.text || payload?.body || payload?.content?.body || payload?.prompt || '';
+
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 shadow-sm space-y-3">
-      <div className="flex items-center gap-2 text-xs font-bold text-blue-600 uppercase">
-        <BookOpen className="w-4 h-4" />
-        {payload?.heading || 'Key Pedagogical Principle'}
-      </div>
-      <div className="text-sm text-slate-700 leading-relaxed space-y-2">
-        <p>
-          {payload?.body ||
-            'Price action reflects human behavior: buyers driving discovery, sellers enforcing boundaries.'}
-        </p>
+    <div className="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 shadow-sm space-y-3 text-left">
+      {title && (
+        <div className="flex items-center gap-2 text-xs font-bold text-blue-600 uppercase tracking-wider">
+          <BookOpen className="w-4 h-4" />
+          <span>{title}</span>
+        </div>
+      )}
+      <div className="text-sm sm:text-base text-slate-700 leading-relaxed space-y-2 whitespace-pre-line">
+        <p>{textContent || 'No text content available.'}</p>
       </div>
     </div>
   );

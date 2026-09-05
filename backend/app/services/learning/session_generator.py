@@ -158,12 +158,15 @@ class SessionGeneratorService:
                     or f"Block {pos}"
                 )
 
+                c_type = raw_block.get("content_type") or raw_block.get("renderer") or "TEXT"
                 if is_interactive:
                     item = interactive_items.get(b_id)
                     items_payload.append({
                         "session_item_id": str(item.id) if item else f"item_{b_id}",
                         "activity_id": str(item.activity_id) if item else str(uuid.uuid5(version.id, b_id)),
                         "activity_type": raw_block.get("activity_type") or "PRACTICE",
+                        "content_type": c_type,
+                        "renderer": c_type,
                         "interaction_type": resp_type,
                         "is_interactive": True,
                         "correct_option_id": b_correct_id,
@@ -180,6 +183,8 @@ class SessionGeneratorService:
                         "session_item_id": f"content_{b_id}",
                         "activity_id": None,
                         "activity_type": raw_block.get("activity_type") or "EXPERIENCE",
+                        "content_type": c_type,
+                        "renderer": c_type,
                         "interaction_type": "NONE",
                         "is_interactive": False,
                         "learning_phase": raw_block.get("activity_type") or "EXPERIENCE",

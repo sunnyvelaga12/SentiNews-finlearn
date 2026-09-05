@@ -678,17 +678,48 @@ export const SessionPlayerPage = () => {
         </div>
 
         {/* Clear Cognitive Job: Prompt Headline */}
-        <div className="space-y-1">
-          <h1 className="text-xl sm:text-2xl font-black text-[#17202A] tracking-tight leading-snug">
-            {payload.prompt || currentItem.title}
-          </h1>
-        </div>
+        {(() => {
+          const rawType = (
+            currentItem.content_type ||
+            payload.content_type ||
+            currentItem.renderer ||
+            payload.renderer ||
+            (payload.ohlc ? 'CANDLESTICK' : 'TEXT')
+          ).toUpperCase();
+
+          if (rawType === 'HEADING') return null;
+
+          const headlineText = (
+            currentItem.title && !currentItem.title.startsWith('Block ')
+              ? currentItem.title
+              : (payload.title || payload.prompt || currentItem.title)
+          );
+
+          if (!headlineText) return null;
+
+          return (
+            <div className="space-y-1">
+              <h1 className="text-xl sm:text-2xl font-black text-[#17202A] tracking-tight leading-snug">
+                {headlineText}
+              </h1>
+            </div>
+          );
+        })()}
 
         {/* Learning Object: Visualizer container */}
         <div className="w-full">
           {(() => {
-            const rendererType = (currentItem.content_type || payload.renderer || (payload.ohlc ? 'CANDLESTICK' : 'TEXT')).toUpperCase();
-            if (rendererType === 'CANDLESTICK' && (payload.ohlc || effectiveOHLC)) {
+            const rawType = (
+              currentItem.content_type ||
+              payload.content_type ||
+              currentItem.renderer ||
+              payload.renderer ||
+              (payload.ohlc ? 'CANDLESTICK' : 'TEXT')
+            ).toUpperCase();
+
+            // Strictly ONLY render CandlestickVisualizer if rendererType is explicitly 'CANDLESTICK'
+            // AND (payload.ohlc exists OR it is an interactive PRACTICE activity)
+            if (rawType === 'CANDLESTICK' && (payload.ohlc || currentItem.activity_type === 'PRACTICE')) {
               return (
                 <CandlestickVisualizer
                   initialOHLC={effectiveOHLC}
@@ -701,7 +732,7 @@ export const SessionPlayerPage = () => {
                 />
               );
             }
-            const Component = getRenderer(rendererType);
+            const Component = getRenderer(rawType);
             return <Component payload={payload} effectiveInteraction={currentItem.activity_type} />;
           })()}
         </div>
@@ -880,8 +911,10 @@ export const SessionPlayerPage = () => {
                 <span>💡 Tip:</span>
                 <span>
                   {isQuestionStep
-                ? 'Select an option above, then click Check Answer.'
-                : 'Inspect the chart, then click Continue to Next Step.'}
+                    ? 'Select an option above, then click Check Answer.'
+                    : (currentItem.content_type === 'CANDLESTICK' || payload.renderer === 'CANDLESTICK')
+                      ? 'Inspect the chart, then click Continue to Next Step.'
+                      : 'Review the concept above, then click Continue to Next Step.'}
                 </span>
               </div>)}
           </div>

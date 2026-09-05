@@ -172,7 +172,7 @@ class ProgressionEngine:
                     if b_type not in InteractionType.__members__:
                         b_type = "OBSERVE"
 
-                    renderer = (b.get("renderer") or "CANDLESTICK").upper()
+                    renderer = (b.get("content_type") or b.get("renderer") or "TEXT").upper()
                     if renderer not in RendererType.__members__:
                         renderer = "TEXT"
 
