@@ -121,6 +121,11 @@ async def create_module(
         clean_name = re.sub(r'[^a-z0-9]+', '-', req.name.lower()).strip('-')
         slug = clean_name or f"mod-{uuid.uuid4().hex[:6]}"
 
+    # Ensure slug uniqueness against database
+    existing_mod_slug = (await db.execute(select(Module.id).where(Module.slug == slug))).scalar_one_or_none()
+    if existing_mod_slug:
+        slug = f"{slug}-{uuid.uuid4().hex[:6]}"
+
     new_module = Module(
         id=uuid.uuid4(),
         series_id=series_id,
@@ -198,6 +203,11 @@ async def create_unit(
         clean_name = re.sub(r'[^a-z0-9]+', '-', req.name.lower()).strip('-')
         slug = clean_name or f"unit-{uuid.uuid4().hex[:6]}"
 
+    # Ensure slug uniqueness against database
+    existing_unit_slug = (await db.execute(select(Unit.id).where(Unit.slug == slug))).scalar_one_or_none()
+    if existing_unit_slug:
+        slug = f"{slug}-{uuid.uuid4().hex[:6]}"
+
     new_unit = Unit(
         id=uuid.uuid4(),
         module_id=req.module_id,
@@ -210,9 +220,14 @@ async def create_unit(
     await db.flush()
 
     # Automatically create unit concept and objective so lessons can be associated and evaluated
+    concept_slug = f"concept-{slug}"
+    existing_concept_slug = (await db.execute(select(Concept.id).where(Concept.slug == concept_slug))).scalar_one_or_none()
+    if existing_concept_slug:
+        concept_slug = f"{concept_slug}-{uuid.uuid4().hex[:6]}"
+
     new_concept = Concept(
         id=uuid.uuid4(),
-        slug=f"concept-{slug}",
+        slug=concept_slug,
         title=f"{req.name} Foundations",
         domain="technical_analysis",
         module_id=new_unit.module_id,
@@ -285,11 +300,12 @@ async def delete_module(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Deletes a module and all its child units (cascade).
+    Deletes a module and its child units (cascade).
     Rejects if any associated lesson has a PUBLISHED version, unless force=true (SUPER_ADMIN only).
     """
     require_content_editor(request)
-    from sqlalchemy import delete as sql_delete
+    from sqlalchemy import delete as sql_delete, update
+    from app.models.concept import Concept
 
     stmt = select(Module).where(Module.id == module_id)
     res = await db.execute(stmt)
@@ -297,50 +313,60 @@ async def delete_module(
     if not mod:
         raise HTTPException(status_code=404, detail="MODULE_NOT_FOUND")
 
-    # Gather all units in this module
+    # 1. Gather all units in this module
     u_stmt = select(Unit).where(Unit.module_id == module_id)
     u_res = await db.execute(u_stmt)
     units = u_res.scalars().all()
     unit_ids = [u.id for u in units]
 
-    # Check for published lessons inside any unit
+    # 2. Gather concepts associated with these units or module
+    unit_cids: Set[uuid.UUID] = set()
     if unit_ids:
-        pub_stmt = (
-            select(LessonVersion)
-            .join(Lesson, LessonVersion.lesson_id == Lesson.id)
-            .where(
-                Lesson.unit_id.in_(unit_ids),
-                LessonVersion.status == "PUBLISHED",
-            )
+        uc_stmt = select(UnitConcept.concept_id).where(UnitConcept.unit_id.in_(unit_ids))
+        unit_cids = set((await db.execute(uc_stmt)).scalars().all())
+
+    mod_c_stmt = select(Concept.id).where(Concept.module_id == module_id)
+    mod_cids = set((await db.execute(mod_c_stmt)).scalars().all())
+    all_cids = unit_cids | mod_cids
+    all_cid_strs = {str(cid) for cid in all_cids}
+
+    # 3. Check for published lessons mapped to these concepts
+    published_lessons = []
+    if all_cid_strs:
+        l_stmt = (
+            select(Lesson, LessonVersion)
+            .join(LessonVersion, Lesson.id == LessonVersion.lesson_id)
+            .where(LessonVersion.status == "PUBLISHED")
         )
-        pub_res = await db.execute(pub_stmt)
-        published_versions = pub_res.scalars().all()
-        if published_versions and not force:
-            raise HTTPException(
-                status_code=409,
-                detail=f"MODULE_HAS_PUBLISHED_LESSONS: {len(published_versions)} published lesson version(s) found. "
-                       "Pass ?force=true as SUPER_ADMIN to override.",
-            )
+        l_res = await db.execute(l_stmt)
+        for lesson_obj, lv in l_res.all():
+            lv_cids = {str(c) for c in (lv.concept_ids or [])}
+            if lv_cids & all_cid_strs:
+                published_lessons.append((lesson_obj.id, lv.title))
 
-        # Delete all lesson versions and lessons in these units
-        for uid in unit_ids:
-            lessons_stmt = select(Lesson).where(Lesson.unit_id == uid)
-            lessons_res = await db.execute(lessons_stmt)
-            lessons = lessons_res.scalars().all()
-            for lesson in lessons:
-                await db.execute(sql_delete(LessonVersion).where(LessonVersion.lesson_id == lesson.id))
-            await db.execute(sql_delete(Lesson).where(Lesson.unit_id == uid))
+    if published_lessons and not force:
+        raise HTTPException(
+            status_code=409,
+            detail=f"MODULE_HAS_PUBLISHED_LESSONS: Module '{mod.name}' has {len(published_lessons)} published lesson(s). "
+                   "Pass ?force=true as SUPER_ADMIN to override or unpublish lessons first.",
+        )
 
-        # Delete all units
-        await db.execute(sql_delete(Unit).where(Unit.module_id == module_id))
+    # 4. Cascade delete UnitConcepts and Units
+    if unit_ids:
+        await db.execute(sql_delete(UnitConcept).where(UnitConcept.unit_id.in_(unit_ids)))
+        await db.execute(sql_delete(Unit).where(Unit.id.in_(unit_ids)))
 
-    # Delete the module itself
+    # 5. Clean up or unbind module concepts
+    if mod_cids:
+        await db.execute(update(Concept).where(Concept.module_id == module_id).values(module_id=None))
+
+    # 6. Delete the module itself
     await db.execute(sql_delete(Module).where(Module.id == module_id))
     await db.commit()
 
     return {
         "status": "SUCCESS",
-        "message": f"Module '{mod.name}' and {len(units)} unit(s) deleted.",
+        "message": f"Module '{mod.name}' and {len(units)} unit(s) deleted successfully.",
         "module_id": str(module_id),
         "deleted_units": len(units),
     }
@@ -354,11 +380,12 @@ async def delete_unit(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Deletes a unit and all its child lessons (cascade).
-    Rejects if any lesson has a PUBLISHED version, unless force=true.
+    Deletes a unit and removes its concept associations.
+    Rejects if any associated lesson has a PUBLISHED version, unless force=true.
     """
     require_content_editor(request)
     from sqlalchemy import delete as sql_delete
+    from app.models.concept import Concept
 
     stmt = select(Unit).where(Unit.id == unit_id)
     res = await db.execute(stmt)
@@ -366,37 +393,52 @@ async def delete_unit(
     if not unit:
         raise HTTPException(status_code=404, detail="UNIT_NOT_FOUND")
 
-    # Check for published lessons
-    pub_stmt = (
-        select(LessonVersion)
-        .join(Lesson, LessonVersion.lesson_id == Lesson.id)
-        .where(Lesson.unit_id == unit_id, LessonVersion.status == "PUBLISHED")
-    )
-    pub_res = await db.execute(pub_stmt)
-    published = pub_res.scalars().all()
-    if published and not force:
+    # 1. Find concepts linked to this unit
+    uc_stmt = select(UnitConcept.concept_id).where(UnitConcept.unit_id == unit_id)
+    unit_cids = set((await db.execute(uc_stmt)).scalars().all())
+    unit_cid_strs = {str(cid) for cid in unit_cids}
+
+    # 2. Check for published lessons
+    published_lessons = []
+    if unit_cid_strs:
+        l_stmt = (
+            select(Lesson, LessonVersion)
+            .join(LessonVersion, Lesson.id == LessonVersion.lesson_id)
+            .where(LessonVersion.status == "PUBLISHED")
+        )
+        l_res = await db.execute(l_stmt)
+        for lesson_obj, lv in l_res.all():
+            lv_cids = {str(c) for c in (lv.concept_ids or [])}
+            if lv_cids & unit_cid_strs:
+                published_lessons.append((lesson_obj.id, lv.title))
+
+    if published_lessons and not force:
         raise HTTPException(
             status_code=409,
-            detail=f"UNIT_HAS_PUBLISHED_LESSONS: {len(published)} published lesson version(s). "
-                   "Pass ?force=true to override.",
+            detail=f"UNIT_HAS_PUBLISHED_LESSONS: Unit '{unit.name}' has {len(published_lessons)} published lesson(s). "
+                   "Pass ?force=true to override or unpublish lessons first.",
         )
 
-    # Delete all lessons and their versions
-    lessons_stmt = select(Lesson).where(Lesson.unit_id == unit_id)
-    lessons_res = await db.execute(lessons_stmt)
-    lessons = lessons_res.scalars().all()
-    for lesson in lessons:
-        await db.execute(sql_delete(LessonVersion).where(LessonVersion.lesson_id == lesson.id))
-    await db.execute(sql_delete(Lesson).where(Lesson.unit_id == unit_id))
+    # 3. Delete UnitConcept associations
+    await db.execute(sql_delete(UnitConcept).where(UnitConcept.unit_id == unit_id))
 
+    # 4. Clean up auto-created concept if no other unit references it
+    auto_concept_slug = f"concept-{unit.slug}"
+    c_stmt = select(Concept).where(Concept.slug == auto_concept_slug)
+    auto_c = (await db.execute(c_stmt)).scalar_one_or_none()
+    if auto_c:
+        other_uc = (await db.execute(select(UnitConcept).where(UnitConcept.concept_id == auto_c.id))).scalars().first()
+        if not other_uc:
+            await db.execute(sql_delete(Concept).where(Concept.id == auto_c.id))
+
+    # 5. Delete the unit itself
     await db.execute(sql_delete(Unit).where(Unit.id == unit_id))
     await db.commit()
 
     return {
         "status": "SUCCESS",
-        "message": f"Unit '{unit.name}' and {len(lessons)} lesson(s) deleted.",
+        "message": f"Unit '{unit.name}' deleted successfully.",
         "unit_id": str(unit_id),
-        "deleted_lessons": len(lessons),
     }
 
 

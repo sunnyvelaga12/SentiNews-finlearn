@@ -709,7 +709,24 @@ export const AdminStudioPage = () => {
                 loadLessonDraft(lesson);
             }} onCreateModule={handleCreateModule} onCreateUnit={handleCreateUnit} onCreateLesson={handleCreateLesson} onPromptUnsavedChanges={(targetAction) => {
                 setPendingNavigationAction(() => targetAction);
-            }} onEditModule={() => fetchCurriculumTree()} onDeleteModule={() => fetchCurriculumTree()} onEditUnit={() => fetchCurriculumTree()} onDeleteUnit={() => fetchCurriculumTree()} onDeleteLesson={handleDeleteLesson}/>
+            }} onEditModule={() => fetchCurriculumTree()} onDeleteModule={(modId) => {
+                if (selectedModule?.id === modId) {
+                    setSelectedModule(null);
+                    setSelectedUnit(null);
+                    setSelectedLesson(null);
+                    setBlocks([]);
+                    setHasUnsavedChanges(false);
+                }
+                fetchCurriculumTree();
+            }} onEditUnit={() => fetchCurriculumTree()} onDeleteUnit={(unitId) => {
+                if (selectedUnit?.id === unitId) {
+                    setSelectedUnit(null);
+                    setSelectedLesson(null);
+                    setBlocks([]);
+                    setHasUnsavedChanges(false);
+                }
+                fetchCurriculumTree();
+            }} onDeleteLesson={handleDeleteLesson}/>
           </div>
 
           {/* Column 2: Pedagogical Canvas (Center Flex) */}

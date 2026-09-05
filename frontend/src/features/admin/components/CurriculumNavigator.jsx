@@ -89,6 +89,8 @@ export const CurriculumNavigator = ({
   // ── Delete Confirmation Dialog ────────────────────────────────────────────
   const [deleteDialog, setDeleteDialog] = useState(null); // { type, id, name, onConfirm }
   const [isDeleting, setIsDeleting] = useState(false);
+  const [forceDelete, setForceDelete] = useState(false);
+  const [deleteError, setDeleteError] = useState(null);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
 
   // Collect flat lists for selector dropdowns
@@ -377,19 +379,24 @@ export const CurriculumNavigator = ({
   // ── Delete Handlers ────────────────────────────────────────────────────────
   const promptDelete = (e, type, id, name, onConfirm) => {
     e.stopPropagation();
+    setForceDelete(false);
+    setDeleteError(null);
     setDeleteDialog({ type, id, name, onConfirm });
   };
 
   const handleConfirmDelete = async () => {
     if (!deleteDialog) return;
     setIsDeleting(true);
+    setDeleteError(null);
     try {
-      await deleteDialog.onConfirm();
+      await deleteDialog.onConfirm(forceDelete);
+      setDeleteDialog(null);
     } catch (err) {
       console.error('Delete failed:', err);
+      const msg = err?.details?.detail || err?.message || 'Failed to delete item. Check published content or permissions.';
+      setDeleteError(msg);
     } finally {
       setIsDeleting(false);
-      setDeleteDialog(null);
     }
   };
 
@@ -555,9 +562,9 @@ export const CurriculumNavigator = ({
                                                       <Pencil className="w-3 h-3" />
                                                     </button>
                                                     <button
-                                                      onClick={(e) => promptDelete(e, 'Module', mod.id, mod.name, async () => {
-                                                        await apiClient(`/api/v1/curriculum/modules/${mod.id}`, { method: 'DELETE' });
-                                                        if (onDeleteModule) await onDeleteModule();
+                                                      onClick={(e) => promptDelete(e, 'Module', mod.id, mod.name, async (force) => {
+                                                        await apiClient(`/api/v1/curriculum/modules/${mod.id}${force ? '?force=true' : ''}`, { method: 'DELETE' });
+                                                        if (onDeleteModule) await onDeleteModule(mod.id);
                                                       })}
                                                       title="Delete Module"
                                                       className="p-0.5 hover:bg-rose-100 hover:text-rose-600 rounded text-slate-400 transition-colors"
@@ -628,9 +635,9 @@ export const CurriculumNavigator = ({
                                                               <Pencil className="w-3 h-3" />
                                                             </button>
                                                             <button
-                                                              onClick={(e) => promptDelete(e, 'Unit', unit.id, unit.name, async () => {
-                                                                await apiClient(`/api/v1/curriculum/units/${unit.id}`, { method: 'DELETE' });
-                                                                if (onDeleteUnit) await onDeleteUnit();
+                                                              onClick={(e) => promptDelete(e, 'Unit', unit.id, unit.name, async (force) => {
+                                                                await apiClient(`/api/v1/curriculum/units/${unit.id}${force ? '?force=true' : ''}`, { method: 'DELETE' });
+                                                                if (onDeleteUnit) await onDeleteUnit(unit.id);
                                                               })}
                                                               title="Delete Unit"
                                                               className="p-0.5 hover:bg-rose-100 hover:text-rose-600 rounded text-slate-400 transition-colors"
@@ -694,8 +701,8 @@ export const CurriculumNavigator = ({
 
                                                                       {/* Lesson delete button on hover */}
                                                                       <button
-                                                                        onClick={(e) => promptDelete(e, 'Lesson', l.id, l.title, async () => {
-                                                                          await apiClient(`/api/v1/admin/lessons/${l.id}`, { method: 'DELETE' });
+                                                                        onClick={(e) => promptDelete(e, 'Lesson', l.id, l.title, async (force) => {
+                                                                          await apiClient(`/api/v1/admin/lessons/${l.id}${force ? '?force=true' : ''}`, { method: 'DELETE' });
                                                                           if (onDeleteLesson) await onDeleteLesson(l.id);
                                                                         })}
                                                                         title="Delete Lesson"
@@ -1211,23 +1218,50 @@ export const CurriculumNavigator = ({
               </div>
             </div>
 
-            <div className="p-3 bg-rose-50 border border-rose-100 rounded-lg">
+            <div className="p-3 bg-rose-50 border border-rose-100 rounded-lg space-y-1.5">
               <p className="text-xs text-rose-800 font-medium">
                 <span className="font-black">"{deleteDialog.name}"</span>
                 {deleteDialog.type === 'Module' && ' and all its units and lessons will be permanently deleted.'}
                 {deleteDialog.type === 'Unit' && ' and all its lessons will be permanently deleted.'}
                 {deleteDialog.type === 'Lesson' && ' and all its draft versions will be permanently deleted.'}
               </p>
-              {(deleteDialog.type === 'Module' || deleteDialog.type === 'Unit') && (
-                <p className="text-[11px] text-rose-600 mt-1 font-semibold">
-                  ⚠ Published lessons will block deletion. Use SUPER_ADMIN role to force.
+              {(deleteDialog.type === 'Module' || deleteDialog.type === 'Unit' || deleteDialog.type === 'Lesson') && (
+                <p className="text-[11px] text-rose-600 font-semibold">
+                  ⚠ Published content cannot be deleted without Force Delete.
                 </p>
               )}
             </div>
 
-            <div className="flex justify-end gap-2 pt-1">
+            {/* Force Delete Checkbox for Super Admins */}
+            <label className="flex items-center gap-2 cursor-pointer pt-1 text-xs text-slate-700 select-none bg-slate-50 p-2 rounded border border-slate-200">
+              <input
+                type="checkbox"
+                checked={forceDelete}
+                onChange={(e) => setForceDelete(e.target.checked)}
+                className="w-3.5 h-3.5 rounded border-slate-300 text-rose-600 focus:ring-rose-500"
+              />
+              <span className="font-semibold text-slate-800">
+                Force delete (override published checks / cascade)
+              </span>
+            </label>
+
+            {/* Error message banner */}
+            {deleteError && (
+              <div className="p-2.5 bg-rose-100/80 border border-rose-300 rounded-lg text-xs text-rose-800 font-medium space-y-1">
+                <div className="font-bold flex items-center gap-1.5 text-rose-900">
+                  <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                  <span>Deletion Failed</span>
+                </div>
+                <p className="text-[11px] leading-relaxed">{deleteError}</p>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-1 border-t border-slate-100">
               <button
-                onClick={() => setDeleteDialog(null)}
+                onClick={() => {
+                  setDeleteDialog(null);
+                  setDeleteError(null);
+                }}
                 disabled={isDeleting}
                 className="px-3 py-1.5 rounded text-xs font-semibold text-slate-600 hover:bg-slate-100 disabled:opacity-50"
               >

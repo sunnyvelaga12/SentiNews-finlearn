@@ -1,3 +1,4 @@
+import os
 import uuid
 from typing import Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, Header
@@ -630,11 +631,12 @@ async def list_media_assets(
 async def delete_lesson(
     lesson_id: uuid.UUID,
     request: Request,
+    force: bool = False,
     db: AsyncSession = Depends(get_db),
 ):
     """
     Permanently deletes a lesson and all associated LessonVersion records.
-    Rejects if any version has PUBLISHED status (use unpublish flow first).
+    Rejects if any version has PUBLISHED status (use unpublish flow or pass force=true as SUPER_ADMIN).
     """
     validate_origin_and_csrf(request)
     actor_id, actor_role = get_admin_actor(request, ["CONTENT_EDITOR", "SUPER_ADMIN", "ADMIN"])
@@ -646,17 +648,20 @@ async def delete_lesson(
         raise HTTPException(status_code=404, detail="LESSON_NOT_FOUND")
 
     # Check for published versions
-    from sqlalchemy import delete as sql_delete
+    from sqlalchemy import delete as sql_delete, update
     v_stmt = select(LessonVersion).where(LessonVersion.lesson_id == lesson_id)
     v_res = await db.execute(v_stmt)
     versions = v_res.scalars().all()
+    version_ids = [v.id for v in versions]
 
     published = [v for v in versions if v.status == "PUBLISHED"]
-    if published and actor_role != "SUPER_ADMIN":
+    if published and actor_role != "SUPER_ADMIN" and not force:
         raise HTTPException(
             status_code=409,
-            detail="LESSON_HAS_PUBLISHED_VERSIONS: Cannot delete a lesson with published content. Use SUPER_ADMIN role or unpublish first."
+            detail="LESSON_HAS_PUBLISHED_VERSIONS: Cannot delete a lesson with published content. Use SUPER_ADMIN role with ?force=true or unpublish first."
         )
+
+    display_title = (versions[0].title if versions else None) or lesson.slug
 
     # Audit log the deletion
     audit = AuditLog(
@@ -670,14 +675,26 @@ async def delete_lesson(
     )
     db.add(audit)
 
-    # Delete all versions then the lesson
+    # 1. Break circular reference on Lesson before deleting versions
+    await db.execute(update(Lesson).where(Lesson.id == lesson_id).values(current_version_id=None))
+
+    # 2. Safely clean up any learning sessions referencing these versions to prevent RESTRICT constraint failure
+    if version_ids:
+        from app.models.learning import LearningSession, LearningSessionItem
+        sess_stmt = select(LearningSession.id).where(LearningSession.lesson_version_id.in_(version_ids))
+        sess_ids = (await db.execute(sess_stmt)).scalars().all()
+        if sess_ids:
+            await db.execute(sql_delete(LearningSessionItem).where(LearningSessionItem.session_id.in_(sess_ids)))
+            await db.execute(sql_delete(LearningSession).where(LearningSession.id.in_(sess_ids)))
+
+    # 3. Delete all versions then the lesson
     await db.execute(sql_delete(LessonVersion).where(LessonVersion.lesson_id == lesson_id))
     await db.execute(sql_delete(Lesson).where(Lesson.id == lesson_id))
     await db.commit()
 
     return {
         "status": "SUCCESS",
-        "message": f"Lesson '{lesson.title or lesson.slug}' and {len(versions)} version(s) deleted.",
+        "message": f"Lesson '{display_title}' and {len(versions)} version(s) deleted successfully.",
         "lesson_id": str(lesson_id),
         "deleted_versions": len(versions),
     }
