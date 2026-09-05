@@ -1,9 +1,12 @@
 import React, { useState } from 'react';
 import { Sliders, ShieldCheck, Building2, AlertOctagon, AlertTriangle, CheckCircle2, Target, Plus, Trash2, Sparkles, } from 'lucide-react';
-import { generateUUID } from '../utils/blockRegistry';
+import { generateUUID, BLOCK_CAPABILITIES } from '../utils/blockRegistry';
 
 export const InspectorAndQualityPanel = ({ selectedBlock, selectedBlockIndex = 0, qualityResult, onUpdateSelectedBlock, onJumpToBlock, onApplyQuickFix, }) => {
     const [activeTab, setActiveTab] = useState('PROPERTIES');
+    const cType = selectedBlock ? (selectedBlock.content_type || selectedBlock.type || 'TEXT') : 'TEXT';
+    const isPureContent = ['HEADING', 'TEXT', 'IMAGE', 'CALLOUT', 'ANALOGY', 'TABLE'].includes(cType);
+    const blockTitle = selectedBlock?.title || selectedBlock?.content?.title || BLOCK_CAPABILITIES[cType]?.label || cType || 'Block';
     // Hard Semantic Guardrail helper: if MASTERY_EVIDENCE chosen, ensure response_type is not NONE
     const handleEvidenceRoleChange = (role) => {
         if (!selectedBlock)
@@ -116,120 +119,171 @@ export const InspectorAndQualityPanel = ({ selectedBlock, selectedBlockIndex = 0
       {/* ── TAB 1: PROPERTIES (Technical Configuration) ── */}
       {activeTab === 'PROPERTIES' && (<div className="flex-1 overflow-y-auto p-4 space-y-5">
           {!selectedBlock ? (<div className="text-center py-10 text-xs text-slate-400">
-              Select a step card in the center canvas to configure technical properties.
+              Select a block in the center canvas to configure properties.
             </div>) : (<>
               <div className="border-b border-slate-100 pb-3">
                 <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block">
-                  Configuring Step {selectedBlockIndex + 1}
+                  Configuring Block {selectedBlockIndex + 1}
                 </span>
                 <h4 className="text-sm font-bold text-slate-900 truncate">
-                  {selectedBlock.title || 'Untitled Step'}
+                  {blockTitle}
                 </h4>
               </div>
 
-              {/* Interaction Type */}
+              {/* Activity Type */}
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-700">Interaction Type</label>
-                <select value={selectedBlock.type || 'OBSERVE'} onChange={(e) => onUpdateSelectedBlock({
+                <label className="text-xs font-bold text-slate-700">Activity Type</label>
+                <select value={selectedBlock.activity_type || 'OBSERVE'} onChange={(e) => onUpdateSelectedBlock({
                     ...selectedBlock,
-                    type: e.target.value,
+                    activity_type: e.target.value,
                 })} className="w-full p-2 text-xs font-medium border border-slate-200 rounded-md bg-slate-50 focus:outline-none focus:border-blue-500">
-                  <option value="OBSERVE">OBSERVE (Visual exploration)</option>
+                  <option value="OBSERVE">OBSERVE (Visual / Conceptual exploration)</option>
                   <option value="PREDICT">PREDICT (Prediction task)</option>
                   <option value="EXPLAIN">EXPLAIN (Core mental model)</option>
                   <option value="PRACTICE">PRACTICE (Active retrieval)</option>
-                  <option value="MARKET_EXAMPLE">MARKET_EXAMPLE (NSE/BSE case)</option>
-                  <option value="MISCONCEPTION_CHECK">MISCONCEPTION_CHECK (Trap)</option>
                   <option value="APPLICATION">APPLICATION (Decision scenario)</option>
-                  <option value="TRANSFER">TRANSFER (Asset cross-transfer)</option>
+                  <option value="EXPERIENCE">EXPERIENCE (Market immersion)</option>
+                  <option value="RETRIEVE">RETRIEVE (Knowledge retrieval)</option>
+                  <option value="REFLECT">REFLECT (Metacognitive synthesis)</option>
                 </select>
               </div>
 
-              {/* Response Type */}
+              {/* Cognitive Level */}
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-700">Response Type</label>
-                <select value={selectedBlock.response_type || 'NONE'} onChange={(e) => onUpdateSelectedBlock({
+                <label className="text-xs font-bold text-slate-700">Cognitive Level</label>
+                <select value={selectedBlock.cognitive_level || 'UNDERSTAND'} onChange={(e) => onUpdateSelectedBlock({
                     ...selectedBlock,
-                    response_type: e.target.value,
+                    cognitive_level: e.target.value,
                 })} className="w-full p-2 text-xs font-medium border border-slate-200 rounded-md bg-slate-50 focus:outline-none focus:border-blue-500">
-                  <option value="NONE">NONE (Read-only observation)</option>
-                  <option value="SINGLE_CHOICE">SINGLE_CHOICE (Multiple Choice)</option>
-                  <option value="MULTIPLE_CHOICE">MULTIPLE_CHOICE (Multi-select)</option>
-                  <option value="NUMERIC">NUMERIC (Price or calculation)</option>
+                  <option value="REMEMBER">REMEMBER (Recall facts & basic concepts)</option>
+                  <option value="UNDERSTAND">UNDERSTAND (Explain ideas or concepts)</option>
+                  <option value="APPLY">APPLY (Use information in new situations)</option>
+                  <option value="ANALYZE">ANALYZE (Draw connections among ideas)</option>
+                  <option value="EVALUATE">EVALUATE (Justify a stand or decision)</option>
                 </select>
               </div>
 
-              {/* Visual Renderer Type */}
+              {/* Difficulty Level */}
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-700">Visual Renderer</label>
-                <select value={selectedBlock.renderer || 'CANDLESTICK'} onChange={(e) => onUpdateSelectedBlock({
+                <label className="text-xs font-bold text-slate-700">Difficulty Level (1 - 5)</label>
+                <select value={selectedBlock.difficulty || 1} onChange={(e) => onUpdateSelectedBlock({
                     ...selectedBlock,
-                    renderer: e.target.value,
+                    difficulty: Number(e.target.value),
                 })} className="w-full p-2 text-xs font-medium border border-slate-200 rounded-md bg-slate-50 focus:outline-none focus:border-blue-500">
-                  <option value="CANDLESTICK">CANDLESTICK (OHLC Interactive Candle)</option>
-                  <option value="TABLE">TABLE (Financial coordinates table)</option>
-                  <option value="TEXT">TEXT (Formatted editorial prose)</option>
-                  <option value="CHART">CHART (Multi-candle price chart)</option>
+                  <option value={1}>1 — Foundational / Introductory</option>
+                  <option value={2}>2 — Basic Understanding</option>
+                  <option value={3}>3 — Intermediate Application</option>
+                  <option value={4}>4 — Advanced Analysis</option>
+                  <option value={5}>5 — Expert / Synthesis</option>
                 </select>
               </div>
 
-              {/* Evidence Role with Plain-English Guidance & Hard Constraints */}
-              <div className="space-y-1.5 pt-2 border-t border-slate-100">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-slate-700 flex items-center gap-1">
-                    <Target className="w-3.5 h-3.5 text-blue-600"/>
-                    Evidence Role
-                  </label>
+              {/* Visual Renderer Type (Only for CANDLESTICK) */}
+              {cType === 'CANDLESTICK' && (
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700">Visual Renderer</label>
+                  <select value={selectedBlock.renderer || 'CANDLESTICK'} onChange={(e) => onUpdateSelectedBlock({
+                      ...selectedBlock,
+                      renderer: e.target.value,
+                  })} className="w-full p-2 text-xs font-medium border border-slate-200 rounded-md bg-slate-50 focus:outline-none focus:border-blue-500">
+                    <option value="CANDLESTICK">CANDLESTICK (OHLC Interactive Candle)</option>
+                    <option value="CHART">CHART (Multi-candle price chart)</option>
+                  </select>
+                </div>
+              )}
+
+              {/* Pure Content Context */}
+              {isPureContent && (
+                <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs text-slate-600 space-y-1">
+                  <div className="font-bold text-slate-700 flex items-center gap-1.5">
+                    <span>Pure Content Block ({cType})</span>
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    Direct instructional content. Pure content blocks do not require learner response choices or evaluation keys.
+                  </p>
+                </div>
+              )}
+
+              {/* Interactive Controls (Only for non-pure-content) */}
+              {!isPureContent && (<>
+                {/* Response Type */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700">Response Type</label>
+                  <select value={selectedBlock.response_type || 'SINGLE_CHOICE'} onChange={(e) => onUpdateSelectedBlock({
+                      ...selectedBlock,
+                      response_type: e.target.value,
+                  })} className="w-full p-2 text-xs font-medium border border-slate-200 rounded-md bg-slate-50 focus:outline-none focus:border-blue-500">
+                    <option value="SINGLE_CHOICE">SINGLE_CHOICE (Multiple Choice)</option>
+                    <option value="IMAGE_SELECTION">IMAGE_SELECTION (Image Multiple Choice)</option>
+                    <option value="TRUE_FALSE">TRUE_FALSE (True / False)</option>
+                  </select>
                 </div>
 
-                <select value={selectedBlock.evidence_role || 'NONE'} onChange={(e) => handleEvidenceRoleChange(e.target.value)} className="w-full p-2 text-xs font-bold border border-slate-200 rounded-md bg-slate-50 focus:outline-none focus:border-blue-500 text-slate-800">
-                  <option value="NONE">NONE (Orientation / Explanation only)</option>
-                  <option value="FORMATIVE">FORMATIVE (Practice, no mastery change)</option>
-                  <option value="DIAGNOSTIC">DIAGNOSTIC (Identifies misconceptions)</option>
-                  <option value="MASTERY_EVIDENCE">MASTERY_EVIDENCE (Counts toward verified mastery)</option>
-                </select>
-
-                <p className="text-[11px] text-slate-500 leading-tight">
-                  {selectedBlock.evidence_role === 'MASTERY_EVIDENCE'
-                    ? '✓ Contributes verified Bayesian competence to concept mastery.'
-                    : selectedBlock.evidence_role === 'FORMATIVE'
-                        ? 'Formative practice without changing authoritative mastery.'
-                        : 'Orientation or explanation only.'}
-                </p>
-              </div>
-
-              {/* Multiple Choice Options Configuration */}
-              {['SINGLE_CHOICE', 'MULTIPLE_CHOICE'].includes(selectedBlock.response_type || '') && (<div className="space-y-3 pt-2 border-t border-slate-100">
+                {/* Evidence Role with Plain-English Guidance & Hard Constraints */}
+                <div className="space-y-1.5 pt-2 border-t border-slate-100">
                   <div className="flex items-center justify-between">
-                    <label className="text-xs font-bold text-slate-700">Answer Options</label>
-                    <button onClick={handleAddOption} className="text-[11px] text-blue-600 hover:text-blue-700 font-semibold flex items-center gap-1">
-                      <Plus className="w-3 h-3"/> Add Option
-                    </button>
+                    <label className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                      <Target className="w-3.5 h-3.5 text-blue-600"/>
+                      Evidence Role
+                    </label>
                   </div>
 
-                  <div className="space-y-2">
-                    {(selectedBlock.options || []).map((opt, idx) => (<div key={opt.id || idx} className="flex items-center gap-2">
-                        <input type="radio" name="correct_option" checked={opt.is_correct === true || opt.id === selectedBlock.correct_option_id} onChange={() => handleSetCorrectOption(idx)} title="Mark as correct answer" className="text-blue-600 focus:ring-blue-500 shrink-0"/>
-                        <input type="text" value={opt.text} onChange={(e) => handleOptionChange(idx, e.target.value)} placeholder={`Option ${idx + 1}`} className="flex-1 text-xs p-1.5 border border-slate-200 rounded focus:outline-none focus:border-blue-500"/>
-                        <button onClick={() => handleRemoveOption(idx)} className="p-1 text-slate-400 hover:text-rose-600 rounded">
-                          <Trash2 className="w-3.5 h-3.5"/>
-                        </button>
-                      </div>))}
+                  <select value={selectedBlock.evidence_role || 'FORMATIVE'} onChange={(e) => handleEvidenceRoleChange(e.target.value)} className="w-full p-2 text-xs font-bold border border-slate-200 rounded-md bg-slate-50 focus:outline-none focus:border-blue-500 text-slate-800">
+                    <option value="NONE">NONE (Practice only)</option>
+                    <option value="FORMATIVE">FORMATIVE (Practice, no mastery change)</option>
+                    <option value="DIAGNOSTIC">DIAGNOSTIC (Identifies misconceptions)</option>
+                    <option value="MASTERY_EVIDENCE">MASTERY_EVIDENCE (Counts toward verified mastery)</option>
+                  </select>
+
+                  <p className="text-[11px] text-slate-500 leading-tight">
+                    {selectedBlock.evidence_role === 'MASTERY_EVIDENCE'
+                      ? '✓ Contributes verified Bayesian competence to concept mastery.'
+                      : selectedBlock.evidence_role === 'FORMATIVE'
+                          ? 'Formative practice without changing authoritative mastery.'
+                          : 'Orientation or practice only.'}
+                  </p>
+                </div>
+
+                {/* Multiple Choice Options Configuration */}
+                {['SINGLE_CHOICE', 'MULTIPLE_CHOICE', 'IMAGE_SELECTION'].includes(selectedBlock.response_type || '') && (<div className="space-y-3 pt-2 border-t border-slate-100">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold text-slate-700">Answer Options</label>
+                      <button onClick={handleAddOption} className="text-[11px] text-blue-600 hover:text-blue-700 font-semibold flex items-center gap-1">
+                        <Plus className="w-3 h-3"/> Add Option
+                      </button>
+                    </div>
+
+                    <div className="space-y-2">
+                      {(selectedBlock.options || []).map((opt, idx) => (<div key={opt.id || idx} className="flex items-center gap-2">
+                          <input type="radio" name="correct_option" checked={opt.is_correct === true || opt.id === selectedBlock.correct_option_id || opt.id === selectedBlock.evaluation?.correct_option_id} onChange={() => handleSetCorrectOption(idx)} title="Mark as correct answer" className="text-blue-600 focus:ring-blue-500 shrink-0"/>
+                          <input type="text" value={opt.text} onChange={(e) => handleOptionChange(idx, e.target.value)} placeholder={`Option ${idx + 1}`} className="flex-1 text-xs p-1.5 border border-slate-200 rounded focus:outline-none focus:border-blue-500"/>
+                          <button onClick={() => handleRemoveOption(idx)} className="p-1 text-slate-400 hover:text-rose-600 rounded">
+                            <Trash2 className="w-3.5 h-3.5"/>
+                          </button>
+                        </div>))}
+                    </div>
+                  </div>)}
+
+                {/* Hint & Explanation Fields */}
+                <div className="space-y-3 pt-2 border-t border-slate-100">
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-slate-600">Learner Hint</label>
+                    <input type="text" value={selectedBlock.hint || ''} onChange={(e) => onUpdateSelectedBlock({ ...selectedBlock, hint: e.target.value })} placeholder="e.g. Look at the upper shadow length..." className="w-full text-xs p-2 border border-slate-200 rounded focus:outline-none focus:border-blue-500"/>
                   </div>
-                </div>)}
 
-              {/* Hint & Explanation Fields */}
-              <div className="space-y-3 pt-2 border-t border-slate-100">
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-600">Learner Hint</label>
-                  <input type="text" value={selectedBlock.hint || ''} onChange={(e) => onUpdateSelectedBlock({ ...selectedBlock, hint: e.target.value })} placeholder="e.g. Look at the upper shadow length..." className="w-full text-xs p-2 border border-slate-200 rounded focus:outline-none focus:border-blue-500"/>
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-slate-600">Explanation on Submit</label>
+                    <textarea rows={2} value={selectedBlock.evaluation?.explanation || selectedBlock.explanation || ''} onChange={(e) => onUpdateSelectedBlock({
+                        ...selectedBlock,
+                        explanation: e.target.value,
+                        evaluation: {
+                          ...(selectedBlock.evaluation || {}),
+                          explanation: e.target.value,
+                        },
+                    })} placeholder="Explain why the answer is correct..." className="w-full text-xs p-2 border border-slate-200 rounded focus:outline-none focus:border-blue-500 resize-none"/>
+                  </div>
                 </div>
-
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-600">Explanation on Submit</label>
-                  <textarea rows={2} value={selectedBlock.explanation || ''} onChange={(e) => onUpdateSelectedBlock({ ...selectedBlock, explanation: e.target.value })} placeholder="Explain why the answer is correct..." className="w-full text-xs p-2 border border-slate-200 rounded focus:outline-none focus:border-blue-500 resize-none"/>
-                </div>
-              </div>
+              </>)}
             </>)}
         </div>)}
 
@@ -339,14 +393,14 @@ export const InspectorAndQualityPanel = ({ selectedBlock, selectedBlockIndex = 0
       {/* ── TAB 3: SOURCES & PROVENANCE (First-Class Citizen) ── */}
       {activeTab === 'SOURCES' && (<div className="flex-1 overflow-y-auto p-4 space-y-5">
           {!selectedBlock ? (<div className="text-center py-10 text-xs text-slate-400">
-              Select a step to inspect or attach regulatory and financial source provenance.
+              Select a block to inspect or attach regulatory and financial source provenance.
             </div>) : (<>
               <div className="border-b border-slate-100 pb-3">
                 <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block">
-                  Step {selectedBlockIndex + 1} Provenance
+                  Block {selectedBlockIndex + 1} Provenance
                 </span>
                 <h4 className="text-sm font-bold text-slate-900 truncate">
-                  {selectedBlock.title || 'Untitled Step'}
+                  {blockTitle}
                 </h4>
               </div>
 

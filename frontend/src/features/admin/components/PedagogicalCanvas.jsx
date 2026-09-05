@@ -488,7 +488,8 @@ export const PedagogicalCanvas = ({
           {blocks.map((b, idx) => {
             const isSelected = idx === activeBlockIndex;
             const cType = b.content_type || b.type || 'TEXT';
-            const rType = b.response_type || 'NONE';
+            const isPureContent = ['HEADING', 'TEXT', 'IMAGE', 'CALLOUT', 'ANALOGY', 'TABLE'].includes(cType);
+            const rType = isPureContent ? 'NONE' : (b.response_type || 'NONE');
             const config = contentTypeConfig[cType] || contentTypeConfig.TEXT;
             const content = b.content || {};
             const isDragTarget = dropTargetIdx === idx && draggingIdx !== idx;
@@ -520,33 +521,23 @@ export const PedagogicalCanvas = ({
                   onDragOver={handleDragOver}
                   onDrop={(e) => handleDrop(e, idx)}
                   onDragEnd={handleDragEnd}
-                  className={`relative flex items-stretch gap-0 mb-3 rounded-xl transition-all ${
-                    isDragTarget ? 'ring-2 ring-blue-500 ring-offset-2 shadow-lg' : ''
-                  } ${isDragging ? 'opacity-40 scale-[0.99]' : ''}`}
+                  onClick={() => onSelectBlock(idx)}
+                  className={`relative rounded-xl border transition-all duration-150 ${
+                    isSelected
+                      ? 'border-blue-500 ring-2 ring-blue-500/20 bg-white shadow-md'
+                      : 'border-slate-200 hover:border-slate-300 bg-white shadow-sm'
+                  } ${isDragTarget ? 'border-dashed border-blue-400 bg-blue-50/20' : ''} ${
+                    isDragging ? 'opacity-40' : ''
+                  }`}
                 >
-                  {/* Drag Handle */}
-                  <div
-                    className="flex items-center px-1.5 cursor-grab active:cursor-grabbing bg-slate-50 hover:bg-slate-100 rounded-l-xl border border-r-0 border-slate-200 transition-colors group/handle"
-                    title="Drag to reorder"
-                  >
-                    <GripVertical className="w-3.5 h-3.5 text-slate-300 group-hover/handle:text-slate-500 transition-colors" />
-                  </div>
-
-                  {/* Block content */}
-                  <div
-                    onClick={() => onSelectBlock(idx)}
-                    className={`flex-1 group relative p-5 rounded-r-xl border transition-all cursor-pointer bg-white ${
-                      isSelected
-                        ? 'border-blue-500 shadow-md ring-2 ring-blue-500/10'
-                        : 'border-slate-200 hover:border-slate-300 hover:shadow-sm'
-                    }`}
-                  >
-                <div className="flex items-start justify-between gap-4">
-                  {/* Step Index & Badge */}
-                  <div className="flex items-start gap-3.5 flex-1">
-                    <div className="text-center pt-1 shrink-0">
-                      <span className="text-xs font-black text-slate-400 font-mono block">
-                        {String(idx + 1).padStart(2, '0')}
+                  <div className="p-4 sm:p-5 flex items-start gap-3">
+                    {/* Drag Handle & Order Badge */}
+                    <div className="flex flex-col items-center gap-1 pt-1 select-none text-slate-300">
+                      <span
+                        className="cursor-grab active:cursor-grabbing p-1 hover:text-slate-500"
+                        title="Drag to reorder block"
+                      >
+                        <GripVertical className="w-4 h-4" />
                       </span>
                       <span className="text-[9px] text-slate-300 font-mono">
                         #{b.order_index ?? idx}
@@ -559,13 +550,22 @@ export const PedagogicalCanvas = ({
                         {/* Content Type Selector */}
                         <select
                           value={cType}
-                          onChange={(e) =>
+                          onChange={(e) => {
+                            const nextType = e.target.value;
+                            const isNextPure = ['HEADING', 'TEXT', 'IMAGE', 'CALLOUT', 'ANALOGY', 'TABLE'].includes(nextType);
                             onUpdateBlock(idx, {
                               ...b,
-                              content_type: e.target.value,
-                              type: e.target.value,
-                            })
-                          }
+                              content_type: nextType,
+                              type: nextType,
+                              ...(isNextPure ? {
+                                response_type: 'NONE',
+                                evidence_role: 'NONE',
+                                options: undefined,
+                                evaluation: undefined,
+                                correct_option_id: undefined,
+                              } : {}),
+                            });
+                          }}
                           onClick={(e) => e.stopPropagation()}
                           className={`text-[11px] font-bold rounded px-2 py-0.5 border bg-white focus:outline-none focus:border-blue-500 ${config.color}`}
                         >
@@ -579,50 +579,56 @@ export const PedagogicalCanvas = ({
                           <option value="SCENARIO">SCENARIO</option>
                         </select>
 
-                        {/* Response Type Selector */}
-                        <select
-                          value={rType}
-                          onChange={(e) => {
-                            const nextRType = e.target.value;
-                            const isInteractive = nextRType !== 'NONE';
-                            const opt1 = generateUUID();
-                            const opt2 = generateUUID();
-                            onUpdateBlock(idx, {
-                              ...b,
-                              response_type: nextRType,
-                              evidence_role:
-                                isInteractive && b.evidence_role === 'NONE'
-                                  ? 'FORMATIVE'
-                                  : b.evidence_role,
-                              options:
-                                isInteractive && (!b.options || b.options.length === 0)
-                                  ? [
-                                      { id: opt1, text: 'Option A', is_correct: true },
-                                      { id: opt2, text: 'Option B', is_correct: false },
-                                    ]
-                                  : b.options,
-                              evaluation:
-                                isInteractive && !b.evaluation
-                                  ? {
-                                      correct_option_id: opt1,
-                                      explanation: 'Explanation for learner feedback.',
-                                    }
-                                  : b.evaluation,
-                              correct_option_id: isInteractive ? opt1 : undefined,
-                            });
-                          }}
-                          onClick={(e) => e.stopPropagation()}
-                          className={`text-[11px] font-bold rounded px-2 py-0.5 border focus:outline-none focus:border-blue-500 ${
-                            rType === 'NONE'
-                              ? 'bg-slate-100 text-slate-600 border-slate-200'
-                              : 'bg-emerald-50 text-emerald-700 border-emerald-300'
-                          }`}
-                        >
-                          <option value="NONE">PURE CONTENT (No Evaluation)</option>
-                          <option value="SINGLE_CHOICE">SINGLE CHOICE MCQ</option>
-                          <option value="IMAGE_SELECTION">IMAGE SELECTION MCQ</option>
-                          <option value="TRUE_FALSE">TRUE / FALSE</option>
-                        </select>
+                        {/* Response Type Selector / Pure Content Badge */}
+                        {isPureContent ? (
+                          <span className="text-[11px] font-bold rounded px-2 py-0.5 border bg-slate-100 text-slate-600 border-slate-200">
+                            PURE CONTENT
+                          </span>
+                        ) : (
+                          <select
+                            value={rType}
+                            onChange={(e) => {
+                              const nextRType = e.target.value;
+                              const isInteractive = nextRType !== 'NONE';
+                              const opt1 = generateUUID();
+                              const opt2 = generateUUID();
+                              onUpdateBlock(idx, {
+                                ...b,
+                                response_type: nextRType,
+                                evidence_role:
+                                  isInteractive && b.evidence_role === 'NONE'
+                                    ? 'FORMATIVE'
+                                    : b.evidence_role,
+                                options:
+                                  isInteractive && (!b.options || b.options.length === 0)
+                                    ? [
+                                        { id: opt1, text: 'Option A', is_correct: true },
+                                        { id: opt2, text: 'Option B', is_correct: false },
+                                      ]
+                                    : b.options,
+                                evaluation:
+                                  isInteractive && !b.evaluation
+                                    ? {
+                                        correct_option_id: opt1,
+                                        explanation: 'Explanation for learner feedback.',
+                                      }
+                                    : b.evaluation,
+                                correct_option_id: isInteractive ? opt1 : undefined,
+                              });
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                            className={`text-[11px] font-bold rounded px-2 py-0.5 border focus:outline-none focus:border-blue-500 ${
+                              rType === 'NONE'
+                                ? 'bg-slate-100 text-slate-600 border-slate-200'
+                                : 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                            }`}
+                          >
+                            <option value="NONE">PURE CONTENT (No Evaluation)</option>
+                            <option value="SINGLE_CHOICE">SINGLE CHOICE MCQ</option>
+                            <option value="IMAGE_SELECTION">IMAGE SELECTION MCQ</option>
+                            <option value="TRUE_FALSE">TRUE / FALSE</option>
+                          </select>
+                        )}
 
                         {/* Activity Type Metadata */}
                         <select
@@ -1516,9 +1522,7 @@ export const PedagogicalCanvas = ({
                     </button>
                   </div>
                 </div>
-              </div>
-              </div>
-            </React.Fragment>
+              </React.Fragment>
             );
           })}
 

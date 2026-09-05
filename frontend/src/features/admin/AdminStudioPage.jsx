@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { CurriculumNavigator } from './components/CurriculumNavigator';
 import { PedagogicalCanvas } from './components/PedagogicalCanvas';
 import { InspectorAndQualityPanel } from './components/InspectorAndQualityPanel';
@@ -44,6 +44,38 @@ export const AdminStudioPage = () => {
     const [surfaceTab, setSurfaceTab] = useState('STUDIO');
     // Role Simulator
     const [userRole, setUserRole] = useState('SUPER_ADMIN');
+
+    // Canonical synchronization refs to prevent closures from clobbering in-flight or rapid edits
+    const selectedLessonRef = useRef(selectedLesson);
+    useEffect(() => {
+        selectedLessonRef.current = selectedLesson;
+    }, [selectedLesson]);
+
+    const latestStateRef = useRef({
+        blocks,
+        lessonTitle,
+        lessonSlug,
+        durationMinutes,
+        level,
+        learningObjectives,
+        currentVersionId,
+        versionNumber,
+    });
+    useEffect(() => {
+        latestStateRef.current = {
+            blocks,
+            lessonTitle,
+            lessonSlug,
+            durationMinutes,
+            level,
+            learningObjectives,
+            currentVersionId,
+            versionNumber,
+        };
+    }, [blocks, lessonTitle, lessonSlug, durationMinutes, level, learningObjectives, currentVersionId, versionNumber]);
+
+    const isSavingRef = useRef(false);
+    const hasPendingChangesRef = useRef(false);
 
     // Sync simulated role with API client headers
     useEffect(() => {
@@ -111,11 +143,10 @@ export const AdminStudioPage = () => {
                     }
                 }
 
-                // If a target lesson was specified or previously active in sessionStorage, select it
-                const targetId = targetLessonId || (typeof window !== 'undefined' ? sessionStorage.getItem('lcms_active_lesson_id') : null);
-                if (targetId) {
+                // If a target lesson was specified explicitly, select it and load its draft
+                if (targetLessonId) {
                     for (const item of allUnitsWithLessons) {
-                        const l = item.lessons.find((les) => les.id === targetId || les.version_id === targetId);
+                        const l = item.lessons.find((les) => les.id === targetLessonId || les.version_id === targetLessonId);
                         if (l) {
                             setSelectedModule(item.module);
                             setSelectedUnit(item.unit);
@@ -129,20 +160,38 @@ export const AdminStudioPage = () => {
                     }
                 }
 
-                // Auto-select first lesson if none selected
-                if (!selectedLesson) {
+                // If a lesson is ALREADY selected and loaded, do NOT reload it or clobber in-memory draft!
+                if (selectedLessonRef.current?.id) {
+                    return;
+                }
+
+                // Otherwise, check sessionStorage for previously active lesson
+                const sessionTargetId = typeof window !== 'undefined' ? sessionStorage.getItem('lcms_active_lesson_id') : null;
+                if (sessionTargetId) {
                     for (const item of allUnitsWithLessons) {
-                        if (item.lessons.length > 0) {
-                            const firstLesson = item.lessons[0];
+                        const l = item.lessons.find((les) => les.id === sessionTargetId || les.version_id === sessionTargetId);
+                        if (l) {
                             setSelectedModule(item.module);
                             setSelectedUnit(item.unit);
-                            setSelectedLesson(firstLesson);
-                            if (typeof window !== 'undefined' && firstLesson.id) {
-                                sessionStorage.setItem('lcms_active_lesson_id', firstLesson.id);
-                            }
-                            loadLessonDraft(firstLesson);
+                            setSelectedLesson(l);
+                            loadLessonDraft(l);
                             return;
                         }
+                    }
+                }
+
+                // Auto-select first lesson if none selected
+                for (const item of allUnitsWithLessons) {
+                    if (item.lessons.length > 0) {
+                        const firstLesson = item.lessons[0];
+                        setSelectedModule(item.module);
+                        setSelectedUnit(item.unit);
+                        setSelectedLesson(firstLesson);
+                        if (typeof window !== 'undefined' && firstLesson.id) {
+                            sessionStorage.setItem('lcms_active_lesson_id', firstLesson.id);
+                        }
+                        loadLessonDraft(firstLesson);
+                        return;
                     }
                 }
             }
@@ -153,7 +202,7 @@ export const AdminStudioPage = () => {
         finally {
             setIsLoadingTree(false);
         }
-    }, [selectedLesson]);
+    }, []); // Empty deps: break reload loop on selectedLesson changes
     useEffect(() => {
         fetchCurriculumTree();
     }, [fetchCurriculumTree]);
@@ -183,13 +232,13 @@ export const AdminStudioPage = () => {
                         setBlocks(sortedBlocks);
                     }
                     else {
-                        // Provide sensible defaults for empty lessons
+                        // Provide sensible defaults for empty lessons (clean empty text)
                         setBlocks([
                             {
                                 id: `block_${Date.now()}`,
                                 order_index: 0,
                                 content_type: 'HEADING',
-                                activity_type: 'EXPERIENCE',
+                                activity_type: 'OBSERVE',
                                 response_type: 'NONE',
                                 title: data.title || lesson.title || 'Lesson Overview',
                                 content: { title: data.title || lesson.title || 'Lesson Overview', level: 1 },
@@ -200,16 +249,17 @@ export const AdminStudioPage = () => {
                                 id: `block_${Date.now() + 1}`,
                                 order_index: 1,
                                 content_type: 'TEXT',
-                                activity_type: 'EXPERIENCE',
+                                activity_type: 'OBSERVE',
                                 response_type: 'NONE',
                                 title: 'Core Principles',
-                                content: { body: 'Explore the foundations, mechanics, and core principles of this financial topic.' },
+                                content: { text: '' },
                                 evidence_role: 'NONE',
                                 difficulty: 1,
                             },
                         ]);
                     }
                     setActiveBlockIndex(0);
+                    hasPendingChangesRef.current = false;
                     setHasUnsavedChanges(false);
                     setOccConflict(null);
                     return;
@@ -227,7 +277,7 @@ export const AdminStudioPage = () => {
                     id: `block_${Date.now()}`,
                     order_index: 0,
                     content_type: 'HEADING',
-                    activity_type: 'EXPERIENCE',
+                    activity_type: 'OBSERVE',
                     response_type: 'NONE',
                     title: lesson.title || 'Lesson Overview',
                     content: { title: lesson.title || 'Lesson Overview', level: 1 },
@@ -238,14 +288,15 @@ export const AdminStudioPage = () => {
                     id: `block_${Date.now() + 1}`,
                     order_index: 1,
                     content_type: 'TEXT',
-                    activity_type: 'EXPERIENCE',
+                    activity_type: 'OBSERVE',
                     response_type: 'NONE',
                     title: 'Core Principles',
-                    content: { body: 'Explore the foundations, mechanics, and core principles of this financial topic.' },
+                    content: { text: '' },
                     evidence_role: 'NONE',
                     difficulty: 1,
                 },
             ]);
+            hasPendingChangesRef.current = false;
             setHasUnsavedChanges(false);
         }
         catch (err) {
@@ -262,26 +313,39 @@ export const AdminStudioPage = () => {
     }, [lessonTitle, level, learningObjectives, blocks]);
     // ── 4. Save Draft with OCC (If-Match) ───────────────────────────────────────
     const handleSaveDraft = async () => {
-        if (!currentVersionId)
+        const stateToSave = latestStateRef.current;
+        if (!stateToSave.currentVersionId || isSavingRef.current)
             return;
         try {
+            isSavingRef.current = true;
             setIsSaving(true);
             const payload = {
-                title: lessonTitle,
-                duration_minutes: durationMinutes,
-                learning_objectives: learningObjectives,
-                blocks_json: blocks,
+                title: stateToSave.lessonTitle,
+                duration_minutes: stateToSave.durationMinutes,
+                learning_objectives: stateToSave.learningObjectives,
+                blocks_json: stateToSave.blocks,
             };
-            const data = await apiClient(`/api/v1/admin/lessons/draft/${currentVersionId}`, {
+            const data = await apiClient(`/api/v1/admin/lessons/draft/${stateToSave.currentVersionId}`, {
                 method: 'PATCH',
                 headers: {
-                    'If-Match': `"${versionNumber}"`,
+                    'If-Match': `"${stateToSave.versionNumber}"`,
                 },
                 body: JSON.stringify(payload),
             });
             if (data) {
                 setVersionNumber(data.version_number);
-                setHasUnsavedChanges(false);
+                latestStateRef.current.versionNumber = data.version_number;
+                // Only clear dirty state if no further edits were made while the save was in flight
+                if (latestStateRef.current.blocks === stateToSave.blocks &&
+                    latestStateRef.current.lessonTitle === stateToSave.lessonTitle &&
+                    latestStateRef.current.durationMinutes === stateToSave.durationMinutes &&
+                    latestStateRef.current.learningObjectives === stateToSave.learningObjectives) {
+                    hasPendingChangesRef.current = false;
+                    setHasUnsavedChanges(false);
+                } else {
+                    hasPendingChangesRef.current = true;
+                    setHasUnsavedChanges(true);
+                }
                 setLastSavedTime(new Date());
                 setOccConflict(null);
             }
@@ -289,7 +353,7 @@ export const AdminStudioPage = () => {
         catch (err) {
             if (err?.status === 409 || err?.message?.includes('OCC')) {
                 setOccConflict({
-                    serverVersion: versionNumber + 1,
+                    serverVersion: stateToSave.versionNumber + 1,
                     conflictType: 'CONTENT',
                     diffSummary: err.message || 'The draft was updated on the server by another editor.',
                 });
@@ -299,6 +363,7 @@ export const AdminStudioPage = () => {
             }
         }
         finally {
+            isSavingRef.current = false;
             setIsSaving(false);
         }
     };
@@ -380,7 +445,7 @@ export const AdminStudioPage = () => {
                             content_type: 'TEXT',
                             activity_type: 'OBSERVE',
                             response_type: 'NONE',
-                            content: { text: 'Introduce core concepts and key principles here...' },
+                            content: { text: '' },
                             difficulty: 1,
                         },
                     ],
@@ -476,142 +541,166 @@ export const AdminStudioPage = () => {
         }
     };
     // Block mutation helpers
-    const handleUpdateBlock = (idx, updated) => {
-        const nextBlocks = [...blocks];
-        nextBlocks[idx] = updated;
-        setBlocks(nextBlocks);
+    // Block mutation helpers (functional setters protect against closure staleness)
+    const handleUpdateBlock = useCallback((idx, updated) => {
+        setBlocks((prevBlocks) => {
+            const nextBlocks = [...prevBlocks];
+            const current = prevBlocks[idx];
+            const resolved = typeof updated === 'function' ? updated(current) : updated;
+            nextBlocks[idx] = resolved;
+            return nextBlocks;
+        });
+        hasPendingChangesRef.current = true;
         setHasUnsavedChanges(true);
-    };
-    const handleMoveBlock = (idx, direction) => {
+    }, []);
+
+    const handleMoveBlock = useCallback((idx, direction) => {
         const targetIdx = direction === 'UP' ? idx - 1 : idx + 1;
-        if (targetIdx < 0 || targetIdx >= blocks.length)
-            return;
-        const nextBlocks = [...blocks];
-        const temp = nextBlocks[idx];
-        nextBlocks[idx] = nextBlocks[targetIdx];
-        nextBlocks[targetIdx] = temp;
-        nextBlocks.forEach((b, i) => {
-            b.order_index = i;
-        });
-        setBlocks(nextBlocks);
-        setActiveBlockIndex(targetIdx);
-        setHasUnsavedChanges(true);
-    };
-    const handleDuplicateBlock = (idx) => {
-        const source = blocks[idx];
-        if (!source) return;
-
-        let newOptions = undefined;
-        let newCorrectOptionId = undefined;
-
-        if (Array.isArray(source.options) && source.options.length > 0) {
-            const oldToNewMap = new Map();
-            newOptions = source.options.map((opt) => {
-                const newOptId = generateUUID();
-                oldToNewMap.set(opt.id, newOptId);
-                return {
-                    ...opt,
-                    id: newOptId,
-                };
+        setBlocks((prevBlocks) => {
+            if (targetIdx < 0 || targetIdx >= prevBlocks.length)
+                return prevBlocks;
+            const nextBlocks = [...prevBlocks];
+            const temp = nextBlocks[idx];
+            nextBlocks[idx] = nextBlocks[targetIdx];
+            nextBlocks[targetIdx] = temp;
+            nextBlocks.forEach((b, i) => {
+                b.order_index = i;
             });
-            const oldCorrect = source.evaluation?.correct_option_id || source.correct_option_id;
-            newCorrectOptionId = oldToNewMap.get(oldCorrect) || newOptions[0]?.id;
-        }
-
-        const duplicate = {
-            ...JSON.parse(JSON.stringify(source)),
-            id: generateUUID(),
-            title: source.title ? `${source.title} (Copy)` : 'Copy',
-            options: newOptions !== undefined ? newOptions : source.options,
-            evaluation: source.evaluation ? {
-                ...source.evaluation,
-                correct_option_id: newCorrectOptionId || source.evaluation.correct_option_id,
-            } : undefined,
-            correct_option_id: newCorrectOptionId || source.correct_option_id,
-        };
-
-        const nextBlocks = [...blocks];
-        nextBlocks.splice(idx + 1, 0, duplicate);
-        nextBlocks.forEach((b, i) => {
-            b.order_index = i;
+            return nextBlocks;
         });
-        setBlocks(nextBlocks);
+        setActiveBlockIndex(targetIdx);
+        hasPendingChangesRef.current = true;
+        setHasUnsavedChanges(true);
+    }, []);
+
+    const handleDuplicateBlock = useCallback((idx) => {
+        setBlocks((prevBlocks) => {
+            const source = prevBlocks[idx];
+            if (!source) return prevBlocks;
+
+            let newOptions = undefined;
+            let newCorrectOptionId = undefined;
+
+            if (Array.isArray(source.options) && source.options.length > 0) {
+                const oldToNewMap = new Map();
+                newOptions = source.options.map((opt) => {
+                    const newOptId = generateUUID();
+                    oldToNewMap.set(opt.id, newOptId);
+                    return {
+                        ...opt,
+                        id: newOptId,
+                    };
+                });
+                const oldCorrect = source.evaluation?.correct_option_id || source.correct_option_id;
+                newCorrectOptionId = oldToNewMap.get(oldCorrect) || newOptions[0]?.id;
+            }
+
+            const duplicate = {
+                ...JSON.parse(JSON.stringify(source)),
+                id: generateUUID(),
+                title: source.title ? `${source.title} (Copy)` : 'Copy',
+                options: newOptions !== undefined ? newOptions : source.options,
+                evaluation: source.evaluation ? {
+                    ...source.evaluation,
+                    correct_option_id: newCorrectOptionId || source.evaluation.correct_option_id,
+                } : undefined,
+                correct_option_id: newCorrectOptionId || source.correct_option_id,
+            };
+
+            const nextBlocks = [...prevBlocks];
+            nextBlocks.splice(idx + 1, 0, duplicate);
+            nextBlocks.forEach((b, i) => {
+                b.order_index = i;
+            });
+            return nextBlocks;
+        });
         setActiveBlockIndex(idx + 1);
+        hasPendingChangesRef.current = true;
         setHasUnsavedChanges(true);
-    };
-    const handleDeleteBlock = (idx) => {
-        if (blocks.length <= 1)
-            return;
-        const nextBlocks = blocks.filter((_, i) => i !== idx);
-        nextBlocks.forEach((b, i) => {
-            b.order_index = i;
+    }, []);
+
+    const handleDeleteBlock = useCallback((idx) => {
+        setBlocks((prevBlocks) => {
+            if (prevBlocks.length <= 1)
+                return prevBlocks;
+            const nextBlocks = prevBlocks.filter((_, i) => i !== idx);
+            nextBlocks.forEach((b, i) => {
+                b.order_index = i;
+            });
+            return nextBlocks;
         });
-        setBlocks(nextBlocks);
-        setActiveBlockIndex(Math.max(0, idx - 1));
+        setActiveBlockIndex((prev) => Math.max(0, idx - 1));
+        hasPendingChangesRef.current = true;
         setHasUnsavedChanges(true);
-    };
-    const handleAddBlock = (blockInput, insertAt = null) => {
-        let newBlock;
-        if (typeof blockInput === 'string') {
-            try {
-                newBlock = createBlock(blockInput, blocks.length);
-            } catch {
-                newBlock = createBlock('TEXT', blocks.length);
+    }, []);
+
+    const handleAddBlock = useCallback((blockInput, insertAt = null) => {
+        setBlocks((prevBlocks) => {
+            const currentCount = prevBlocks.length;
+            let newBlock;
+            if (typeof blockInput === 'string') {
+                try {
+                    newBlock = createBlock(blockInput, currentCount);
+                } catch {
+                    newBlock = createBlock('TEXT', currentCount);
+                }
+            } else if (typeof blockInput === 'object' && blockInput !== null) {
+                const cType = blockInput.content_type || blockInput.type || 'TEXT';
+                try {
+                    newBlock = createBlock(cType, currentCount, blockInput);
+                } catch {
+                    const optA = generateUUID();
+                    const optB = generateUUID();
+                    const isInteractive = (blockInput.response_type && blockInput.response_type !== 'NONE');
+                    newBlock = {
+                        id: generateUUID(),
+                        order_index: currentCount,
+                        content_type: cType,
+                        type: cType,
+                        activity_type: blockInput.activity_type || 'OBSERVE',
+                        response_type: blockInput.response_type || 'NONE',
+                        evidence_role: blockInput.evidence_role || (isInteractive ? 'MASTERY_EVIDENCE' : 'NONE'),
+                        difficulty: blockInput.difficulty || 1,
+                        title: blockInput.title || `New ${cType}`,
+                        content: blockInput.content || (cType === 'TEXT' ? { text: '' } : {}),
+                        options: isInteractive ? (blockInput.options || [
+                            { id: optA, text: 'Option A (Correct)', is_correct: true },
+                            { id: optB, text: 'Option B', is_correct: false },
+                        ]) : undefined,
+                        evaluation: isInteractive ? (blockInput.evaluation || {
+                            correct_option_id: optA,
+                            explanation: 'Explanation for learner feedback and remediation.',
+                        }) : undefined,
+                        correct_option_id: isInteractive ? optA : undefined,
+                    };
+                }
             }
-        } else if (typeof blockInput === 'object' && blockInput !== null) {
-            const cType = blockInput.content_type || blockInput.type || 'TEXT';
-            try {
-                newBlock = createBlock(cType, blocks.length, blockInput);
-            } catch {
-                const optA = generateUUID();
-                const optB = generateUUID();
-                const isInteractive = (blockInput.response_type && blockInput.response_type !== 'NONE');
-                newBlock = {
-                    id: generateUUID(),
-                    order_index: blocks.length,
-                    content_type: cType,
-                    type: cType,
-                    activity_type: blockInput.activity_type || 'OBSERVE',
-                    response_type: blockInput.response_type || 'NONE',
-                    evidence_role: blockInput.evidence_role || (isInteractive ? 'MASTERY_EVIDENCE' : 'NONE'),
-                    difficulty: blockInput.difficulty || 1,
-                    title: blockInput.title || `New ${cType}`,
-                    content: blockInput.content || (cType === 'TEXT' ? { text: '' } : {}),
-                    options: isInteractive ? (blockInput.options || [
-                        { id: optA, text: 'Option A (Correct)', is_correct: true },
-                        { id: optB, text: 'Option B', is_correct: false },
-                    ]) : undefined,
-                    evaluation: isInteractive ? (blockInput.evaluation || {
-                        correct_option_id: optA,
-                        explanation: 'Explanation for learner feedback and remediation.',
-                    }) : undefined,
-                    correct_option_id: isInteractive ? optA : undefined,
-                };
-            }
-        }
-        if (newBlock) {
-            // insertAt: optional position (0-indexed). null = append to end.
-            if (insertAt !== null && insertAt >= 0 && insertAt <= blocks.length) {
+            if (!newBlock) return prevBlocks;
+
+            if (insertAt !== null && insertAt >= 0 && insertAt <= prevBlocks.length) {
                 const nextBlocks = [
-                    ...blocks.slice(0, insertAt),
+                    ...prevBlocks.slice(0, insertAt),
                     { ...newBlock, order_index: insertAt },
-                    ...blocks.slice(insertAt),
+                    ...prevBlocks.slice(insertAt),
                 ];
                 nextBlocks.forEach((b, i) => { b.order_index = i; });
-                setBlocks(nextBlocks);
                 setActiveBlockIndex(insertAt);
+                return nextBlocks;
             } else {
-                newBlock.order_index = blocks.length;
-                setBlocks([...blocks, newBlock]);
-                setActiveBlockIndex(blocks.length);
+                newBlock.order_index = prevBlocks.length;
+                setActiveBlockIndex(prevBlocks.length);
+                return [...prevBlocks, newBlock];
             }
-            setHasUnsavedChanges(true);
-        }
-    };
-    const handleReorderBlocks = (reorderedBlocks) => {
-        setBlocks(reorderedBlocks);
+        });
+        hasPendingChangesRef.current = true;
         setHasUnsavedChanges(true);
-    };
+    }, []);
+
+    const handleReorderBlocks = useCallback((reorderedBlocks) => {
+        setBlocks(reorderedBlocks);
+        hasPendingChangesRef.current = true;
+        setHasUnsavedChanges(true);
+    }, []);
     const handleApplyQuickFix = (issue) => {
         if (!issue.suggestedAction)
             return;

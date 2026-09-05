@@ -83,7 +83,7 @@ export const BLOCK_CAPABILITIES = {
       activity_type: 'OBSERVE',
       response_type: 'NONE',
       content: {
-        text: 'Write clear financial explanation, market context, or foundational principles here...',
+        text: '',
       },
       difficulty: 1,
     }),
@@ -470,11 +470,12 @@ export function createBlock(type, orderIndex, customProps = {}) {
     throw new Error(`Unknown block capability type: ${type}`);
   }
   const defaultBlock = capability.createDefault(orderIndex);
+  const clonedDefault = JSON.parse(JSON.stringify(defaultBlock));
   return {
-    ...defaultBlock,
+    ...clonedDefault,
     ...customProps,
     content: {
-      ...defaultBlock.content,
+      ...(clonedDefault.content || {}),
       ...(customProps.content || {}),
     },
   };
