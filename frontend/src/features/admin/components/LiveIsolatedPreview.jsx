@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { ActivityRenderer } from '../../learning/components/ActivityRenderer';
 import { Monitor, Tablet, Smartphone, RotateCcw, ArrowLeft, ArrowRight, ShieldCheck, CheckCircle2, XCircle, AlertCircle, HelpCircle, } from 'lucide-react';
 import { getCachedMediaUrl } from '../utils/mediaResolver';
+import { resolveEndpointUrl } from '../../../services/apiClient';
 
 export const LiveIsolatedPreview = ({ lessonTitle, blocks, activeStepIndex = 0, onClosePreview, }) => {
     // Navigation & Scope
@@ -24,14 +25,18 @@ export const LiveIsolatedPreview = ({ lessonTitle, blocks, activeStepIndex = 0, 
     const options = useMemo(() => {
         const rawOpts = block.options || [];
         const correctId = block.evaluation?.correct_option_id || block.correct_option_id;
-        return rawOpts.map((o, idx) => ({
-            id: o.id || `opt_${idx}`,
-            text: o.text || o.label || `Option ${idx + 1}`,
-            media_asset_id: o.media_asset_id,
-            image_url: o.media_asset_id ? getCachedMediaUrl(o.media_asset_id) : (o.image_url || o.url),
-            is_correct: o.is_correct === true || o.id === correctId,
-        }));
+        return rawOpts.map((o, idx) => {
+            const rawImg = o.media_asset_id ? getCachedMediaUrl(o.media_asset_id) : (o.image_url || o.url);
+            return {
+                id: o.id || `opt_${idx}`,
+                text: o.text || o.label || `Option ${idx + 1}`,
+                media_asset_id: o.media_asset_id,
+                image_url: rawImg ? resolveEndpointUrl(rawImg) : null,
+                is_correct: o.is_correct === true || o.id === correctId,
+            };
+        });
     }, [block]);
+    const hasImageOptions = useMemo(() => options.some(o => o.image_url || o.media_asset_id), [options]);
     const correctOptionId = useMemo(() => {
         const found = options.find((o) => o.is_correct);
         return found?.id || block.evaluation?.correct_option_id || block.correct_option_id || options[0]?.id;
@@ -209,7 +214,7 @@ export const LiveIsolatedPreview = ({ lessonTitle, blocks, activeStepIndex = 0, 
 
           {/* Multiple Choice Interactive Feedback Box (Client-Side Deterministic Evaluator) */}
           {options.length > 0 && (<div className="mt-6 pt-4 border-t border-slate-800 space-y-4">
-              <div className="space-y-2">
+              <div className={hasImageOptions ? "grid grid-cols-1 sm:grid-cols-2 gap-3" : "space-y-2"}>
                 {options.map((opt) => {
                 const isSelected = selectedOption === opt.id;
                 let btnStyle = 'border-slate-700 bg-slate-800/60 hover:bg-slate-800 text-slate-200';
@@ -224,11 +229,28 @@ export const LiveIsolatedPreview = ({ lessonTitle, blocks, activeStepIndex = 0, 
                 else if (isSelected) {
                     btnStyle = 'border-blue-500 bg-blue-500/20 text-blue-200';
                 }
-                return (<button key={opt.id} onClick={() => handleAnswerSelect(opt.id)} disabled={isSubmitted && syntheticState !== 'WRONG_ANSWER'} className={`w-full text-left px-4 py-3 rounded-lg border text-sm font-medium transition-all flex items-center justify-between ${btnStyle}`}>
-                      <span>{opt.text}</span>
-                      {isSubmitted && opt.is_correct && (<CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0"/>)}
-                      {isSubmitted && isSelected && !opt.is_correct && (<XCircle className="w-4 h-4 text-rose-400 shrink-0"/>)}
-                    </button>);
+                return (<button
+                    key={opt.id}
+                    onClick={() => handleAnswerSelect(opt.id)}
+                    disabled={isSubmitted && syntheticState !== 'WRONG_ANSWER'}
+                    className={`w-full text-left p-3 rounded-lg border text-sm font-medium transition-all flex flex-col justify-between gap-2 ${btnStyle}`}
+                  >
+                    {opt.image_url && (
+                      <div className="w-full h-28 bg-slate-950/80 rounded-md overflow-hidden flex items-center justify-center border border-slate-700/60 p-1">
+                        <img
+                          src={opt.image_url}
+                          alt={opt.text}
+                          className="w-full h-full object-contain"
+                          onError={(e) => { e.target.style.display = 'none'; }}
+                        />
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between w-full">
+                      <span className="truncate">{opt.text}</span>
+                      {isSubmitted && opt.is_correct && (<CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 ml-2"/>)}
+                      {isSubmitted && isSelected && !opt.is_correct && (<XCircle className="w-4 h-4 text-rose-400 shrink-0 ml-2"/>)}
+                    </div>
+                  </button>);
             })}
               </div>
 

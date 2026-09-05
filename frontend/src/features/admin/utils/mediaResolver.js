@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { apiClient } from '../../../services/apiClient';
+import { apiClient, resolveEndpointUrl } from '../../../services/apiClient';
 
 // Global in-memory media metadata cache
 const mediaCache = new Map();
@@ -15,10 +15,13 @@ function notifyListeners() {
 export function cacheMediaAsset(asset) {
   if (!asset || !asset.id) return;
   const id = String(asset.id || asset.media_asset_id);
+  const rawUrl = asset.url || asset.asset_url || `/uploads/media/${asset.storage_key || ''}`;
+  const resolvedUrl = rawUrl ? resolveEndpointUrl(rawUrl) : null;
   mediaCache.set(id, {
     id,
     media_asset_id: id,
-    url: asset.url || asset.asset_url || `/uploads/media/${asset.storage_key || ''}`,
+    url: resolvedUrl,
+    raw_url: rawUrl,
     filename: asset.filename,
     alt_text: asset.alt_text,
     caption: asset.caption,
@@ -49,7 +52,7 @@ export async function resolveMediaAsset(mediaAssetId) {
     const data = await apiClient(`/api/v1/admin/media/${id}`);
     if (data) {
       cacheMediaAsset(data);
-      return data;
+      return mediaCache.get(id);
     }
   } catch (err) {
     console.warn(`Failed to resolve media asset ${id}:`, err);

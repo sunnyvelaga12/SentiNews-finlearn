@@ -125,7 +125,7 @@ class SafeActivityCard(BaseModel):
     prompt: Optional[str] = None
     payload: Dict[str, Any] = Field(default_factory=dict)
     provenance: Optional[DataProvenance] = None
-    options: Optional[List[Dict[str, str]]] = None  # {id, text} only - NO correct answers or secrets
+    options: Optional[List[Dict[str, Any]]] = None  # {id, text, media_asset_id, image_url} - NO correct answers or secrets
 
 
 class LessonExecutionContract(BaseModel):

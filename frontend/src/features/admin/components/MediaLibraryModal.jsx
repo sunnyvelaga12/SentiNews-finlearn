@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Upload, Search, Check, Image as ImageIcon, Loader2, AlertCircle } from 'lucide-react';
-import { apiClient } from '../../../services/apiClient';
+import { apiClient, resolveEndpointUrl } from '../../../services/apiClient';
 
 export const MediaLibraryModal = ({ isOpen, onClose, onSelect, activeAssetId = null }) => {
   const [assets, setAssets] = useState([]);
@@ -46,26 +46,14 @@ export const MediaLibraryModal = ({ isOpen, onClose, onSelect, activeAssetId = n
     formData.append('alt_text', file.name);
 
     try {
-      const token = localStorage.getItem('sentinews_token') || '';
-      const response = await fetch('/api/v1/admin/media/upload', {
+      const created = await apiClient('/api/v1/admin/media/upload', {
         method: 'POST',
-        headers: {
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          'X-User-Id': '00000000-0000-0000-0000-000000000001',
-        },
         body: formData,
       });
-
-      if (!response.ok) {
-        const errJson = await response.json().catch(() => ({}));
-        throw new Error(errJson.message || errJson.detail || 'Upload failed');
-      }
-
-      const created = await response.json();
       setSelectedAsset(created);
       await loadMedia();
     } catch (err) {
-      setUploadError(err.message);
+      setUploadError(err.message || 'Upload failed');
     } finally {
       setIsUploading(false);
     }
@@ -173,7 +161,7 @@ export const MediaLibraryModal = ({ isOpen, onClose, onSelect, activeAssetId = n
                 >
                   <div className="aspect-video w-full bg-slate-100 relative overflow-hidden flex items-center justify-center">
                     <img
-                      src={asset.url}
+                      src={resolveEndpointUrl(asset.url)}
                       alt={asset.filename}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
                       onError={(e) => { e.target.src = 'https://via.placeholder.com/300x200?text=Chart'; }}
@@ -188,21 +176,16 @@ export const MediaLibraryModal = ({ isOpen, onClose, onSelect, activeAssetId = n
                       onClick={(e) => {
                         e.stopPropagation();
                         if (window.confirm(`Delete "${asset.filename}"? This cannot be undone.`)) {
-                          const token = localStorage.getItem('sentinews_token') || '';
-                          fetch(`/api/v1/admin/media/${asset.id || asset.media_asset_id}`, {
+                          apiClient(`/api/v1/admin/media/${asset.id || asset.media_asset_id}`, {
                             method: 'DELETE',
-                            headers: {
-                              ...(token ? { Authorization: `Bearer ${token}` } : {}),
-                              'X-User-Id': '00000000-0000-0000-0000-000000000001',
-                              'Content-Type': 'application/json',
-                              'X-CSRFToken': 'dev-csrf-exempt',
-                            },
                           }).then(() => {
                             if (selectedAsset?.id === asset.id || selectedAsset?.media_asset_id === asset.media_asset_id) {
                               setSelectedAsset(null);
                             }
                             loadMedia();
-                          }).catch(console.error);
+                          }).catch((err) => {
+                            console.error('Failed to delete media asset:', err);
+                          });
                         }
                       }}
                       title="Delete asset"

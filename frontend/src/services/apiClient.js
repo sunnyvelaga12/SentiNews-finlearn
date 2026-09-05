@@ -93,12 +93,16 @@ export const refreshAccessToken = async () => {
  */
 export const apiClient = async (endpoint, options = {}) => {
     const { retryCount = 0, headers = {}, ...restOptions } = options;
+    const isFormData = typeof FormData !== 'undefined' && restOptions.body instanceof FormData;
     const requestHeaders = {
-        'Content-Type': 'application/json',
+        ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
         'X-CSRF-Token': 'csrf-session-token',
         'X-Admin-Role': currentAdminRole,
         ...headers,
     };
+    if (isFormData && requestHeaders['Content-Type'] === 'application/json') {
+        delete requestHeaders['Content-Type'];
+    }
     if (currentAccessToken && !requestHeaders['Authorization']) {
         requestHeaders['Authorization'] = `Bearer ${currentAccessToken}`;
     }

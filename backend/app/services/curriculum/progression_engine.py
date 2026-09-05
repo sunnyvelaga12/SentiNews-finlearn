@@ -176,10 +176,15 @@ class ProgressionEngine:
                     if renderer not in RendererType.__members__:
                         renderer = "TEXT"
 
-                    # Sanitize options: drop is_correct or correct_option_id
+                    # Sanitize options: drop is_correct or correct_option_id, preserve media references
                     raw_options = b.get("options") or []
                     sanitized_options = [
-                        {"id": str(o.get("id", f"opt_{i}")), "text": str(o.get("text", o))}
+                        {
+                            "id": str(o.get("id", f"opt_{i}")),
+                            "text": str(o.get("text") or o.get("label") or ""),
+                            **({"media_asset_id": str(o["media_asset_id"])} if o.get("media_asset_id") else {}),
+                            **({"image_url": str(o["image_url"])} if o.get("image_url") else {})
+                        }
                         for i, o in enumerate(raw_options)
                     ] if raw_options else None
 

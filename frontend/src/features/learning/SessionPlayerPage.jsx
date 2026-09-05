@@ -1,10 +1,42 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { telemetry } from '../../services/telemetry';
-import { apiClient } from '../../services/apiClient';
+import { apiClient, resolveEndpointUrl } from '../../services/apiClient';
+import { useMediaAsset } from '../admin/utils/mediaResolver';
 import { X, ArrowRight, Award, CheckCircle2, AlertCircle, HelpCircle, Check, RefreshCw, Eye, Sliders, BarChart2, AlertTriangle, Zap, Target, Shield, Flame, Lightbulb, } from 'lucide-react';
 import { CandlestickVisualizer, formatCurrency } from '../../components/charts/CandlestickVisualizer';
 import { TableRenderer, SEBIDisclaimer, getRenderer } from './components/renderers/RendererRegistry';
+
+function OptionVisual({ mediaAssetId, imageUrl, altText }) {
+    const { url: derivedUrl, isLoading } = useMediaAsset(mediaAssetId);
+    const finalUrl = derivedUrl || (imageUrl ? resolveEndpointUrl(imageUrl) : null);
+
+    if (isLoading) {
+        return (
+            <div className="w-full h-32 bg-slate-100 rounded-lg flex items-center justify-center animate-pulse text-slate-400 text-xs">
+                Loading visual...
+            </div>
+        );
+    }
+
+    if (!finalUrl) {
+        return null;
+    }
+
+    return (
+        <div className="w-full h-36 bg-slate-50 rounded-lg overflow-hidden flex items-center justify-center border border-slate-100 p-2">
+            <img
+                src={finalUrl}
+                alt={altText || 'Choice visual'}
+                className="w-full h-full object-contain transition-transform duration-200 group-hover:scale-105"
+                onError={(e) => {
+                    e.target.style.display = 'none';
+                }}
+            />
+        </div>
+    );
+}
+
 export const SessionPlayerPage = () => {
     const { sessionId } = useParams();
     const navigate = useNavigate();
@@ -539,6 +571,7 @@ export const SessionPlayerPage = () => {
         : ohlcData;
     const provenance = payload.provenance;
     const options = payload.options || [];
+    const hasImageOptions = options.some(o => o.media_asset_id || o.image_url || o.url);
     const currencyCode = payload.currency_code || 'INR';
     const locale = payload.locale || 'en-IN';
     const progressPercent = Math.round(((currentIdx + 1) / items.length) * 100);
@@ -685,32 +718,45 @@ export const SessionPlayerPage = () => {
               </span>
             </div>
 
-            <div className={options.some(o => o.image_url) ? "grid grid-cols-1 sm:grid-cols-2 gap-3" : "grid grid-cols-1 gap-2.5"}>
+            <div className={hasImageOptions ? "grid grid-cols-1 sm:grid-cols-2 gap-3" : "grid grid-cols-1 gap-2.5"}>
               {options.map((opt, optIdx) => {
                 const isSelected = selectedOption === opt.id;
-                return (<button key={opt.id} type="button" disabled={remediation.status === 'CORRECT'} onClick={() => setSelectedOption(opt.id)} className={`group p-4 rounded-xl border text-left text-sm font-semibold transition-all flex flex-col sm:flex-row sm:items-center justify-between cursor-pointer gap-2 ${isSelected
+                const hasImage = Boolean(opt.media_asset_id || opt.image_url || opt.url);
+                return (<button
+                    key={opt.id}
+                    type="button"
+                    disabled={remediation.status === 'CORRECT'}
+                    onClick={() => setSelectedOption(opt.id)}
+                    className={`group p-3.5 rounded-xl border text-left text-sm font-semibold transition-all flex ${
+                      hasImage ? 'flex-col gap-2.5' : 'flex-col sm:flex-row sm:items-center justify-between gap-2'
+                    } cursor-pointer ${
+                      isSelected
                         ? 'border-blue-600 bg-blue-50/70 text-blue-950 shadow-sm ring-1 ring-blue-600/30'
-                        : 'border-slate-200 bg-white text-slate-800 hover:border-slate-300 hover:bg-slate-50/60 shadow-sm'} ${remediation.status === 'CORRECT' ? 'opacity-80 cursor-not-allowed' : ''}`}>
-                    {opt.image_url && (
-                      <img
-                        src={opt.image_url}
-                        alt={opt.text || opt.label || 'Choice visual'}
-                        className="w-full sm:w-28 h-20 object-contain rounded-lg bg-slate-50 border border-slate-200 p-1"
+                        : 'border-slate-200 bg-white text-slate-800 hover:border-slate-300 hover:bg-slate-50/60 shadow-sm'
+                    } ${remediation.status === 'CORRECT' ? 'opacity-80 cursor-not-allowed' : ''}`}
+                  >
+                    {hasImage && (
+                      <OptionVisual
+                        mediaAssetId={opt.media_asset_id}
+                        imageUrl={opt.image_url || opt.url}
+                        altText={opt.text || opt.label || 'Choice visual'}
                       />
                     )}
-                    <div className="flex items-center gap-3 flex-1">
-                      <span className={`font-mono text-xs font-bold px-2 py-0.5 rounded border transition-colors shrink-0 ${isSelected
-                        ? 'bg-blue-600 text-white border-blue-600'
-                        : 'bg-slate-100 text-slate-600 border-slate-200 group-hover:border-slate-300'}`}>
-                        {optIdx + 1}
-                      </span>
-                      <span>{opt.text || opt.label}</span>
-                    </div>
+                    <div className="flex items-center justify-between w-full">
+                      <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                        <span className={`font-mono text-xs font-bold px-2 py-0.5 rounded border transition-colors shrink-0 ${isSelected
+                          ? 'bg-blue-600 text-white border-blue-600'
+                          : 'bg-slate-100 text-slate-600 border-slate-200 group-hover:border-slate-300'}`}>
+                          {optIdx + 1}
+                        </span>
+                        <span className="truncate">{opt.text || opt.label}</span>
+                      </div>
 
-                    <div className={`w-5 h-5 rounded-full border flex items-center justify-center transition-all shrink-0 ${isSelected
-                        ? 'border-blue-600 bg-blue-600 text-white'
-                        : 'border-slate-300 group-hover:border-slate-400'}`}>
-                      {isSelected && <Check className="w-3 h-3 stroke-[3]"/>}
+                      <div className={`w-5 h-5 rounded-full border flex items-center justify-center transition-all shrink-0 ml-2 ${isSelected
+                          ? 'border-blue-600 bg-blue-600 text-white'
+                          : 'border-slate-300 group-hover:border-slate-400'}`}>
+                        {isSelected && <Check className="w-3 h-3 stroke-[3]"/>}
+                      </div>
                     </div>
                   </button>);
             })}

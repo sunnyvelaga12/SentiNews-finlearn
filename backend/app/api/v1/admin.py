@@ -236,7 +236,12 @@ async def preview_lesson_draft(
             title=b.get("title", f"Step {idx+1}"),
             prompt=b.get("prompt"),
             payload=b.get("payload") or b.get("content") or {},
-            options=[{"id": o["id"], "text": o["text"]} for o in b.get("options", []) if "id" in o and "text" in o] if b.get("options") else None,
+            options=[{
+                "id": str(o.get("id")),
+                "text": str(o.get("text") or o.get("label") or ""),
+                **({"media_asset_id": str(o["media_asset_id"])} if o.get("media_asset_id") else {}),
+                **({"image_url": str(o["image_url"])} if o.get("image_url") else {})
+            } for o in b.get("options", []) if o.get("id")] if b.get("options") else None,
             provenance=DataProvenance(**b["provenance"]) if b.get("provenance") else None
         ))
 
