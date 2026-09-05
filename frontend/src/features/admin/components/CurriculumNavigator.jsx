@@ -1220,30 +1220,15 @@ export const CurriculumNavigator = ({
 
             <div className="p-3 bg-rose-50 border border-rose-100 rounded-lg space-y-1.5">
               <p className="text-xs text-rose-800 font-medium">
-                <span className="font-black">"{deleteDialog.name}"</span>
-                {deleteDialog.type === 'Module' && ' and all its units and lessons will be permanently deleted.'}
-                {deleteDialog.type === 'Unit' && ' and all its lessons will be permanently deleted.'}
-                {deleteDialog.type === 'Lesson' && ' and all its draft versions will be permanently deleted.'}
+                Are you sure you want to delete <span className="font-black">"{deleteDialog.name}"</span>?
+                {deleteDialog.type === 'Module' && ' This will permanently delete the entire module, all its child units, and all lessons inside it at once.'}
+                {deleteDialog.type === 'Unit' && ' This will permanently delete the unit and all lessons inside it at once.'}
+                {deleteDialog.type === 'Lesson' && ' This will permanently delete this lesson and all its draft versions.'}
               </p>
-              {(deleteDialog.type === 'Module' || deleteDialog.type === 'Unit' || deleteDialog.type === 'Lesson') && (
-                <p className="text-[11px] text-rose-600 font-semibold">
-                  ⚠ Published content cannot be deleted without Force Delete.
-                </p>
-              )}
+              <p className="text-[11px] text-rose-600 font-semibold">
+                This item and its contents will be permanently removed from both Content Studio and Learner Discovery.
+              </p>
             </div>
-
-            {/* Force Delete Checkbox for Super Admins */}
-            <label className="flex items-center gap-2 cursor-pointer pt-1 text-xs text-slate-700 select-none bg-slate-50 p-2 rounded border border-slate-200">
-              <input
-                type="checkbox"
-                checked={forceDelete}
-                onChange={(e) => setForceDelete(e.target.checked)}
-                className="w-3.5 h-3.5 rounded border-slate-300 text-rose-600 focus:ring-rose-500"
-              />
-              <span className="font-semibold text-slate-800">
-                Force delete (override published checks / cascade)
-              </span>
-            </label>
 
             {/* Error message banner */}
             {deleteError && (

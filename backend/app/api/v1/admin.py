@@ -688,6 +688,8 @@ async def delete_lesson(
             await db.execute(sql_delete(LearningSession).where(LearningSession.id.in_(sess_ids)))
 
     # 3. Delete all versions then the lesson
+    from sqlalchemy import text
+    await db.execute(text("SET LOCAL app.bypass_immutability = 'on'"))
     await db.execute(sql_delete(LessonVersion).where(LessonVersion.lesson_id == lesson_id))
     await db.execute(sql_delete(Lesson).where(Lesson.id == lesson_id))
     await db.commit()
