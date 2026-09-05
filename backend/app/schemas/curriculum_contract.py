@@ -343,3 +343,45 @@ class UnitUpdateRequest(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     order_index: Optional[int] = None
+
+
+class DomainCreateRequest(BaseModel):
+    name: str
+    slug: Optional[str] = None
+    description: Optional[str] = None
+    order_index: int = 0
+
+
+class DomainUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    order_index: Optional[int] = None
+
+
+class WorldCreateRequest(BaseModel):
+    domain_id: uuid.UUID
+    name: str
+    slug: Optional[str] = None
+    description: Optional[str] = None
+    order_index: int = 0
+
+
+class WorldUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    order_index: Optional[int] = None
+
+
+class SeriesCreateRequest(BaseModel):
+    world_id: uuid.UUID
+    name: str
+    slug: Optional[str] = None
+    description: Optional[str] = None
+    order_index: int = 0
+
+
+class SeriesUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    order_index: Optional[int] = None
+

@@ -35,6 +35,7 @@ export const CurriculumNavigator = ({
   onEditUnit,
   onDeleteUnit,
   onDeleteLesson,
+  onRefreshTree,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
@@ -47,6 +48,15 @@ export const CurriculumNavigator = ({
   const [expandedUnits, setExpandedUnits] = useState({});
 
   // Modals for staged creation (No orphan content!)
+  const [showAddDomainModal, setShowAddDomainModal] = useState(false);
+  const [domainForm, setDomainForm] = useState({ name: '', description: '' });
+
+  const [showAddWorldModal, setShowAddWorldModal] = useState(false);
+  const [worldForm, setWorldForm] = useState({ domain_id: '', name: '', description: '' });
+
+  const [showAddSeriesModal, setShowAddSeriesModal] = useState(false);
+  const [seriesForm, setSeriesForm] = useState({ world_id: '', name: '', description: '' });
+
   const [showAddModuleModal, setShowAddModuleModal] = useState(false);
   const [moduleForm, setModuleForm] = useState({
     series_id: '',
@@ -94,10 +104,32 @@ export const CurriculumNavigator = ({
   const [isSavingEdit, setIsSavingEdit] = useState(false);
 
   // Collect flat lists for selector dropdowns
+  const availableDomains = useMemo(() => {
+    return tree.map((d) => ({ id: d.id, name: d.name }));
+  }, [tree]);
+
+  const availableWorlds = useMemo(() => {
+    const list = [];
+    tree.forEach((domain) => {
+      (domain.worlds || []).forEach((world) => {
+        list.push({
+          id: world.id,
+          name: world.name,
+          label: `${domain.name} → ${world.name}`,
+        });
+      });
+    });
+    return list;
+  }, [tree]);
+
   const availableSeries = useMemo(() => {
     const list = [];
     tree.forEach((domain) => {
       (domain.worlds || []).forEach((world) => {
+        list.push({
+          id: world.id,
+          label: `${domain.name} → ${world.name} → ${world.name}`,
+        });
         (world.series || []).forEach((s) => {
           list.push({
             id: s.id,
@@ -221,6 +253,82 @@ export const CurriculumNavigator = ({
             <FileEdit className="w-2.5 h-2.5" /> Draft
           </span>
         );
+    }
+  };
+
+  const handleOpenAddDomain = () => {
+    setDomainForm({ name: '', description: '' });
+    setShowAddDomainModal(true);
+  };
+
+  const handleOpenAddWorld = (defaultDomainId = null) => {
+    setWorldForm({
+      domain_id: defaultDomainId || availableDomains[0]?.id || '',
+      name: '',
+      description: '',
+    });
+    setShowAddWorldModal(true);
+  };
+
+  const handleOpenAddSeries = (defaultWorldId = null) => {
+    setSeriesForm({
+      world_id: defaultWorldId || availableWorlds[0]?.id || '',
+      name: '',
+      description: '',
+    });
+    setShowAddSeriesModal(true);
+  };
+
+  const handleConfirmCreateDomain = async () => {
+    if (!domainForm.name.trim()) return;
+    try {
+      await apiClient('/api/v1/curriculum/domains', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: domainForm.name.trim(),
+          description: domainForm.description.trim(),
+        }),
+      });
+      if (onRefreshTree) await onRefreshTree();
+      setShowAddDomainModal(false);
+    } catch (err) {
+      console.error('Failed to create domain:', err);
+    }
+  };
+
+  const handleConfirmCreateWorld = async () => {
+    if (!worldForm.name.trim() || !worldForm.domain_id) return;
+    try {
+      await apiClient('/api/v1/curriculum/worlds', {
+        method: 'POST',
+        body: JSON.stringify({
+          domain_id: worldForm.domain_id,
+          name: worldForm.name.trim(),
+          description: worldForm.description.trim(),
+        }),
+      });
+      if (onRefreshTree) await onRefreshTree();
+      setShowAddWorldModal(false);
+    } catch (err) {
+      console.error('Failed to create world:', err);
+    }
+  };
+
+  const handleConfirmCreateSeries = async () => {
+    if (!seriesForm.name.trim() || !seriesForm.world_id) return;
+    try {
+      await apiClient('/api/v1/curriculum/series', {
+        method: 'POST',
+        body: JSON.stringify({
+          world_id: seriesForm.world_id,
+          name: seriesForm.name.trim(),
+          description: seriesForm.description.trim(),
+        }),
+      });
+      if (onRefreshTree) await onRefreshTree();
+      setShowAddSeriesModal(false);
+    } catch (err) {
+      console.error('Failed to create series:', err);
     }
   };
 
@@ -412,14 +520,24 @@ export const CurriculumNavigator = ({
             </span>
           </div>
 
-          <button
-            onClick={handleOpenAddModule}
-            title="Create New Module"
-            className="flex items-center gap-1 px-2.5 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-bold shadow-sm transition-all"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Module</span>
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={handleOpenAddDomain}
+              title="Create New Domain"
+              className="flex items-center gap-1 px-2 py-1 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-[11px] font-bold border border-indigo-200 transition-all cursor-pointer"
+            >
+              <Plus className="w-3 h-3" />
+              <span>Domain</span>
+            </button>
+            <button
+              onClick={handleOpenAddModule}
+              title="Create New Module"
+              className="flex items-center gap-1 px-2.5 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-bold shadow-sm transition-all cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Module</span>
+            </button>
+          </div>
         </div>
 
         {/* Search Input */}
@@ -456,15 +574,30 @@ export const CurriculumNavigator = ({
       {/* ── Dynamic 6-Level Hierarchy Tree View ── */}
       <div className="flex-1 overflow-y-auto p-2 space-y-2">
         {tree.length === 0 ? (
-          <div className="p-4 text-center text-xs text-slate-400 space-y-2">
-            <p>No curriculum content found in database.</p>
-            <button
-              onClick={handleOpenAddModule}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-sm"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Create First Module</span>
-            </button>
+          <div className="p-6 text-center text-xs text-slate-400 space-y-3 bg-white rounded-xl border border-dashed border-slate-200 m-2">
+            <div className="w-10 h-10 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mx-auto">
+              <BookOpen className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="font-bold text-slate-700 text-sm">Curriculum is Empty</p>
+              <p className="text-[11px] text-slate-400 mt-0.5">Start building your educational pathways.</p>
+            </div>
+            <div className="flex items-center justify-center gap-2 pt-1">
+              <button
+                onClick={handleOpenAddDomain}
+                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-sm cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Create Domain</span>
+              </button>
+              <button
+                onClick={handleOpenAddModule}
+                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-sm cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Create Module</span>
+              </button>
+            </div>
           </div>
         ) : (
           tree.map((domain) => {
@@ -474,15 +607,40 @@ export const CurriculumNavigator = ({
                 {/* 1. Domain Level */}
                 <div
                   onClick={() => toggleDomain(domain.id)}
-                  className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-slate-100 cursor-pointer text-xs font-black uppercase tracking-wider text-slate-600"
+                  className="group flex items-center justify-between px-2 py-1 rounded hover:bg-slate-100 cursor-pointer text-xs font-black uppercase tracking-wider text-slate-600"
                 >
-                  {isDomainExpanded ? (
-                    <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                  ) : (
-                    <ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                  )}
-                  <Globe className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                  <span className="truncate">{domain.name}</span>
+                  <div className="flex items-center gap-1.5 truncate">
+                    {isDomainExpanded ? (
+                      <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                    ) : (
+                      <ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                    )}
+                    <Globe className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                    <span className="truncate">{domain.name}</span>
+                  </div>
+
+                  <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 transition-opacity shrink-0">
+                    <button
+                      onClick={(e) => promptDelete(e, 'Domain', domain.id, domain.name, async () => {
+                        await apiClient(`/api/v1/curriculum/domains/${domain.id}`, { method: 'DELETE' });
+                        if (onRefreshTree) await onRefreshTree();
+                      })}
+                      title="Delete Domain"
+                      className="p-0.5 hover:bg-rose-100 hover:text-rose-600 rounded text-slate-400 transition-colors"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleOpenAddWorld(domain.id);
+                      }}
+                      title="Add World to Domain"
+                      className="p-0.5 hover:bg-slate-200 rounded text-slate-400 hover:text-slate-700 transition-colors"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
 
                 {isDomainExpanded && (
@@ -494,17 +652,42 @@ export const CurriculumNavigator = ({
                           {/* 2. World Level */}
                           <div
                             onClick={() => toggleWorld(world.id)}
-                            className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-slate-100 cursor-pointer text-xs font-bold text-slate-700"
+                            className="group flex items-center justify-between px-2 py-1 rounded hover:bg-slate-100 cursor-pointer text-xs font-bold text-slate-700"
                           >
-                            {isWorldExpanded ? (
-                              <ChevronDown className="w-3 h-3 text-slate-400 shrink-0" />
-                            ) : (
-                              <ChevronRight className="w-3 h-3 text-slate-400 shrink-0" />
-                            )}
-                            <Compass className="w-3.5 h-3.5 text-sky-500 shrink-0" />
-                            <span className="truncate text-[11px] uppercase tracking-wide">
-                              {world.name}
-                            </span>
+                            <div className="flex items-center gap-1.5 truncate">
+                              {isWorldExpanded ? (
+                                <ChevronDown className="w-3 h-3 text-slate-400 shrink-0" />
+                              ) : (
+                                <ChevronRight className="w-3 h-3 text-slate-400 shrink-0" />
+                              )}
+                              <Compass className="w-3.5 h-3.5 text-sky-500 shrink-0" />
+                              <span className="truncate text-[11px] uppercase tracking-wide">
+                                {world.name}
+                              </span>
+                            </div>
+
+                            <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 transition-opacity shrink-0">
+                              <button
+                                onClick={(e) => promptDelete(e, 'World', world.id, world.name, async () => {
+                                  await apiClient(`/api/v1/curriculum/worlds/${world.id}`, { method: 'DELETE' });
+                                  if (onRefreshTree) await onRefreshTree();
+                                })}
+                                title="Delete World"
+                                className="p-0.5 hover:bg-rose-100 hover:text-rose-600 rounded text-slate-400 transition-colors"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleOpenAddSeries(world.id);
+                                }}
+                                title="Add Series to World"
+                                className="p-0.5 hover:bg-slate-200 rounded text-slate-400 hover:text-slate-700 transition-colors"
+                              >
+                                <Plus className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           </div>
 
                           {isWorldExpanded && (
@@ -516,17 +699,43 @@ export const CurriculumNavigator = ({
                                     {/* 3. Series Level */}
                                     <div
                                       onClick={() => toggleSeries(series.id)}
-                                      className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-slate-100 cursor-pointer text-xs font-semibold text-slate-600"
+                                      className="group flex items-center justify-between px-2 py-1 rounded hover:bg-slate-100 cursor-pointer text-xs font-semibold text-slate-600"
                                     >
-                                      {isSeriesExpanded ? (
-                                        <ChevronDown className="w-3 h-3 text-slate-400 shrink-0" />
-                                      ) : (
-                                        <ChevronRight className="w-3 h-3 text-slate-400 shrink-0" />
-                                      )}
-                                      <Layers className="w-3 h-3 text-emerald-500 shrink-0" />
-                                      <span className="truncate text-[11px]">
-                                        {series.name}
-                                      </span>
+                                      <div className="flex items-center gap-1.5 truncate">
+                                        {isSeriesExpanded ? (
+                                          <ChevronDown className="w-3 h-3 text-slate-400 shrink-0" />
+                                        ) : (
+                                          <ChevronRight className="w-3 h-3 text-slate-400 shrink-0" />
+                                        )}
+                                        <Layers className="w-3 h-3 text-emerald-500 shrink-0" />
+                                        <span className="truncate text-[11px]">
+                                          {series.name}
+                                        </span>
+                                      </div>
+
+                                      <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 transition-opacity shrink-0">
+                                        <button
+                                          onClick={(e) => promptDelete(e, 'Series', series.id, series.name, async () => {
+                                            await apiClient(`/api/v1/curriculum/series/${series.id}`, { method: 'DELETE' });
+                                            if (onRefreshTree) await onRefreshTree();
+                                          })}
+                                          title="Delete Series"
+                                          className="p-0.5 hover:bg-rose-100 hover:text-rose-600 rounded text-slate-400 transition-colors"
+                                        >
+                                          <Trash2 className="w-3 h-3" />
+                                        </button>
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setModuleForm((prev) => ({ ...prev, series_id: series.id }));
+                                            setShowAddModuleModal(true);
+                                          }}
+                                          title="Add Module to Series"
+                                          className="p-0.5 hover:bg-slate-200 rounded text-slate-400 hover:text-slate-700 transition-colors"
+                                        >
+                                          <Plus className="w-3.5 h-3.5" />
+                                        </button>
+                                      </div>
                                     </div>
 
                                     {isSeriesExpanded && (
@@ -1204,6 +1413,187 @@ export const CurriculumNavigator = ({
         </div>
       )}
 
+      {/* ── Modal: Create Domain ── */}
+      {showAddDomainModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl border border-slate-200 max-w-sm w-full p-5 space-y-4 text-slate-800">
+            <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+              <Globe className="w-4 h-4 text-indigo-600" />
+              <span>Create New Domain</span>
+            </h3>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="font-semibold text-slate-600">Domain Name *</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Technical Analysis, Macroeconomics"
+                  value={domainForm.name}
+                  onChange={(e) => setDomainForm({ ...domainForm, name: e.target.value })}
+                  className="w-full mt-1 p-2 border border-slate-200 rounded focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="font-semibold text-slate-600">Description</label>
+                <textarea
+                  rows={2}
+                  placeholder="High-level subject description..."
+                  value={domainForm.description}
+                  onChange={(e) => setDomainForm({ ...domainForm, description: e.target.value })}
+                  className="w-full mt-1 p-2 border border-slate-200 rounded focus:outline-none focus:border-indigo-500 resize-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                onClick={() => setShowAddDomainModal(false)}
+                className="px-3 py-1.5 rounded text-xs font-semibold text-slate-600 hover:bg-slate-100"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmCreateDomain}
+                disabled={!domainForm.name.trim()}
+                className="px-3.5 py-1.5 rounded text-xs font-bold bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white shadow-sm"
+              >
+                Create Domain
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: Create World ── */}
+      {showAddWorldModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl border border-slate-200 max-w-sm w-full p-5 space-y-4 text-slate-800">
+            <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+              <Compass className="w-4 h-4 text-sky-600" />
+              <span>Create New World</span>
+            </h3>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="font-semibold text-slate-600">Parent Domain *</label>
+                <select
+                  value={worldForm.domain_id}
+                  onChange={(e) => setWorldForm({ ...worldForm, domain_id: e.target.value })}
+                  className="w-full mt-1 p-2 border border-slate-200 rounded focus:outline-none focus:border-sky-500"
+                >
+                  {availableDomains.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="font-semibold text-slate-600">World Name *</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Trading Foundations, Market Microstructure"
+                  value={worldForm.name}
+                  onChange={(e) => setWorldForm({ ...worldForm, name: e.target.value })}
+                  className="w-full mt-1 p-2 border border-slate-200 rounded focus:outline-none focus:border-sky-500"
+                />
+              </div>
+              <div>
+                <label className="font-semibold text-slate-600">Description</label>
+                <textarea
+                  rows={2}
+                  placeholder="Thematic learning world description..."
+                  value={worldForm.description}
+                  onChange={(e) => setWorldForm({ ...worldForm, description: e.target.value })}
+                  className="w-full mt-1 p-2 border border-slate-200 rounded focus:outline-none focus:border-sky-500 resize-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                onClick={() => setShowAddWorldModal(false)}
+                className="px-3 py-1.5 rounded text-xs font-semibold text-slate-600 hover:bg-slate-100"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmCreateWorld}
+                disabled={!worldForm.name.trim() || !worldForm.domain_id}
+                className="px-3.5 py-1.5 rounded text-xs font-bold bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white shadow-sm"
+              >
+                Create World
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: Create Series ── */}
+      {showAddSeriesModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl border border-slate-200 max-w-sm w-full p-5 space-y-4 text-slate-800">
+            <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+              <Layers className="w-4 h-4 text-emerald-600" />
+              <span>Create New Series</span>
+            </h3>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="font-semibold text-slate-600">Parent World *</label>
+                <select
+                  value={seriesForm.world_id}
+                  onChange={(e) => setSeriesForm({ ...seriesForm, world_id: e.target.value })}
+                  className="w-full mt-1 p-2 border border-slate-200 rounded focus:outline-none focus:border-emerald-500"
+                >
+                  {availableWorlds.map((w) => (
+                    <option key={w.id} value={w.id}>
+                      {w.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="font-semibold text-slate-600">Series Name *</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Core Curriculum, Advanced Patterns"
+                  value={seriesForm.name}
+                  onChange={(e) => setSeriesForm({ ...seriesForm, name: e.target.value })}
+                  className="w-full mt-1 p-2 border border-slate-200 rounded focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+              <div>
+                <label className="font-semibold text-slate-600">Description</label>
+                <textarea
+                  rows={2}
+                  placeholder="Series / track collection description..."
+                  value={seriesForm.description}
+                  onChange={(e) => setSeriesForm({ ...seriesForm, description: e.target.value })}
+                  className="w-full mt-1 p-2 border border-slate-200 rounded focus:outline-none focus:border-emerald-500 resize-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                onClick={() => setShowAddSeriesModal(false)}
+                className="px-3 py-1.5 rounded text-xs font-semibold text-slate-600 hover:bg-slate-100"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmCreateSeries}
+                disabled={!seriesForm.name.trim() || !seriesForm.world_id}
+                className="px-3.5 py-1.5 rounded text-xs font-bold bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white shadow-sm"
+              >
+                Create Series
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Shared Delete Confirmation Dialog ── */}
       {deleteDialog && (
         <div className="fixed inset-0 z-[60] bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
@@ -1221,6 +1611,9 @@ export const CurriculumNavigator = ({
             <div className="p-3 bg-rose-50 border border-rose-100 rounded-lg space-y-1.5">
               <p className="text-xs text-rose-800 font-medium">
                 Are you sure you want to delete <span className="font-black">"{deleteDialog.name}"</span>?
+                {deleteDialog.type === 'Domain' && ' This will permanently delete the entire domain, all its child worlds, series, and modules.'}
+                {deleteDialog.type === 'World' && ' This will permanently delete the entire world, all its child series, and modules.'}
+                {deleteDialog.type === 'Series' && ' This will permanently delete the entire series and all its child modules.'}
                 {deleteDialog.type === 'Module' && ' This will permanently delete the entire module, all its child units, and all lessons inside it at once.'}
                 {deleteDialog.type === 'Unit' && ' This will permanently delete the unit and all lessons inside it at once.'}
                 {deleteDialog.type === 'Lesson' && ' This will permanently delete this lesson and all its draft versions.'}

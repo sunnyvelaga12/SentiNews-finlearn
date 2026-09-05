@@ -21,6 +21,12 @@ from app.schemas.curriculum_contract import (
     ModuleUpdateRequest,
     UnitCreateRequest,
     UnitUpdateRequest,
+    DomainCreateRequest,
+    DomainUpdateRequest,
+    WorldCreateRequest,
+    WorldUpdateRequest,
+    SeriesCreateRequest,
+    SeriesUpdateRequest,
     LessonStatus,
 )
 from app.services.curriculum.curriculum_service import CurriculumContentService
@@ -470,6 +476,239 @@ async def delete_unit(
     }
 
 
+# ── Domain, World, and Series CRUD & Cascade Deletion ─────────────────────────
+
+async def cascade_delete_module_internal(db: AsyncSession, module_id: uuid.UUID) -> Tuple[int, int]:
+    """Helper to cascade delete a module and all its children without committing."""
+    from sqlalchemy import delete as sql_delete, update, text
+    from app.models.concept import Concept
+    from app.models.learning import LearningSession, LearningSessionItem
+
+    u_stmt = select(Unit).where(Unit.module_id == module_id)
+    units = (await db.execute(u_stmt)).scalars().all()
+    unit_ids = [u.id for u in units]
+
+    unit_cids: Set[uuid.UUID] = set()
+    if unit_ids:
+        uc_stmt = select(UnitConcept.concept_id).where(UnitConcept.unit_id.in_(unit_ids))
+        unit_cids = set((await db.execute(uc_stmt)).scalars().all())
+
+    mod_cids = set((await db.execute(select(Concept.id).where(Concept.module_id == module_id))).scalars().all())
+    all_cid_strs = {str(cid) for cid in (unit_cids | mod_cids)}
+
+    lesson_ids: Set[uuid.UUID] = set()
+    version_ids: Set[uuid.UUID] = set()
+    if all_cid_strs:
+        l_stmt = select(Lesson.id, LessonVersion.id, LessonVersion.concept_ids).join(
+            LessonVersion, Lesson.id == LessonVersion.lesson_id
+        )
+        for lid, vid, cids in (await db.execute(l_stmt)).all():
+            if {str(c) for c in (cids or [])} & all_cid_strs:
+                lesson_ids.add(lid)
+                version_ids.add(vid)
+
+    if version_ids:
+        sess_ids = (await db.execute(
+            select(LearningSession.id).where(LearningSession.lesson_version_id.in_(list(version_ids)))
+        )).scalars().all()
+        if sess_ids:
+            await db.execute(sql_delete(LearningSessionItem).where(LearningSessionItem.session_id.in_(sess_ids)))
+            await db.execute(sql_delete(LearningSession).where(LearningSession.id.in_(sess_ids)))
+
+    if lesson_ids:
+        await db.execute(text("SET LOCAL app.bypass_immutability = 'on'"))
+        await db.execute(update(Lesson).where(Lesson.id.in_(list(lesson_ids))).values(current_version_id=None))
+        await db.execute(sql_delete(LessonVersion).where(LessonVersion.lesson_id.in_(list(lesson_ids))))
+        await db.execute(sql_delete(Lesson).where(Lesson.id.in_(list(lesson_ids))))
+
+    if unit_ids:
+        await db.execute(sql_delete(UnitConcept).where(UnitConcept.unit_id.in_(unit_ids)))
+        await db.execute(sql_delete(Unit).where(Unit.id.in_(unit_ids)))
+
+    if mod_cids:
+        await db.execute(sql_delete(Concept).where(Concept.module_id == module_id))
+
+    await db.execute(sql_delete(Module).where(Module.id == module_id))
+    return len(units), len(lesson_ids)
+
+
+async def cascade_delete_series_internal(db: AsyncSession, series_id: uuid.UUID):
+    """Cascades all modules in series, then deletes series."""
+    from sqlalchemy import delete as sql_delete
+    mod_ids = (await db.execute(select(Module.id).where(Module.series_id == series_id))).scalars().all()
+    for mid in mod_ids:
+        await cascade_delete_module_internal(db, mid)
+    await db.execute(sql_delete(Series).where(Series.id == series_id))
+
+
+async def cascade_delete_world_internal(db: AsyncSession, world_id: uuid.UUID):
+    """Cascades all series in world, then deletes world."""
+    from sqlalchemy import delete as sql_delete
+    series_ids = (await db.execute(select(Series.id).where(Series.world_id == world_id))).scalars().all()
+    for sid in series_ids:
+        await cascade_delete_series_internal(db, sid)
+    await db.execute(sql_delete(World).where(World.id == world_id))
+
+
+async def cascade_delete_domain_internal(db: AsyncSession, domain_id: uuid.UUID):
+    """Cascades all worlds in domain, then deletes domain."""
+    from sqlalchemy import delete as sql_delete
+    world_ids = (await db.execute(select(World.id).where(World.domain_id == domain_id))).scalars().all()
+    for wid in world_ids:
+        await cascade_delete_world_internal(db, wid)
+    await db.execute(sql_delete(Domain).where(Domain.id == domain_id))
+
+
+@router.post("/curriculum/domains", summary="Create a new curriculum domain")
+async def create_domain(req: DomainCreateRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    require_content_editor(request)
+    import re
+    clean_name = re.sub(r'[^a-z0-9]+', '-', req.name.lower()).strip('-')
+    slug = req.slug or clean_name or f"domain-{uuid.uuid4().hex[:6]}"
+    existing = (await db.execute(select(Domain.id).where(Domain.slug == slug))).scalar_one_or_none()
+    if existing:
+        slug = f"{slug}-{uuid.uuid4().hex[:6]}"
+    dom = Domain(
+        id=uuid.uuid4(),
+        slug=slug,
+        name=req.name,
+        description=req.description or "",
+        order_index=req.order_index,
+    )
+    db.add(dom)
+    await db.commit()
+    await db.refresh(dom)
+    return {"status": "SUCCESS", "domain": {"id": str(dom.id), "slug": dom.slug, "name": dom.name}}
+
+
+@router.patch("/curriculum/domains/{domain_id}", summary="Update domain metadata")
+async def update_domain(domain_id: uuid.UUID, req: DomainUpdateRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    require_content_editor(request)
+    dom = (await db.execute(select(Domain).where(Domain.id == domain_id))).scalar_one_or_none()
+    if not dom:
+        raise HTTPException(status_code=404, detail="DOMAIN_NOT_FOUND")
+    if req.name is not None:
+        dom.name = req.name
+    if req.description is not None:
+        dom.description = req.description
+    if req.order_index is not None:
+        dom.order_index = req.order_index
+    await db.commit()
+    return {"status": "SUCCESS", "domain": {"id": str(dom.id), "slug": dom.slug, "name": dom.name}}
+
+
+@router.delete("/curriculum/domains/{domain_id}", summary="Delete a curriculum domain")
+async def delete_domain(domain_id: uuid.UUID, request: Request, db: AsyncSession = Depends(get_db)):
+    require_content_editor(request)
+    dom = (await db.execute(select(Domain).where(Domain.id == domain_id))).scalar_one_or_none()
+    if not dom:
+        raise HTTPException(status_code=404, detail="DOMAIN_NOT_FOUND")
+    await cascade_delete_domain_internal(db, domain_id)
+    await db.commit()
+    return {"status": "SUCCESS", "message": f"Domain '{dom.name}' and all child worlds/series/modules deleted successfully."}
+
+
+@router.post("/curriculum/worlds", summary="Create a new curriculum world")
+async def create_world(req: WorldCreateRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    require_content_editor(request)
+    import re
+    clean_name = re.sub(r'[^a-z0-9]+', '-', req.name.lower()).strip('-')
+    slug = req.slug or clean_name or f"world-{uuid.uuid4().hex[:6]}"
+    existing = (await db.execute(select(World.id).where(World.slug == slug))).scalar_one_or_none()
+    if existing:
+        slug = f"{slug}-{uuid.uuid4().hex[:6]}"
+    world = World(
+        id=uuid.uuid4(),
+        domain_id=req.domain_id,
+        slug=slug,
+        name=req.name,
+        description=req.description or "",
+        order_index=req.order_index,
+    )
+    db.add(world)
+    await db.commit()
+    await db.refresh(world)
+    return {"status": "SUCCESS", "world": {"id": str(world.id), "slug": world.slug, "name": world.name}}
+
+
+@router.patch("/curriculum/worlds/{world_id}", summary="Update world metadata")
+async def update_world(world_id: uuid.UUID, req: WorldUpdateRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    require_content_editor(request)
+    world = (await db.execute(select(World).where(World.id == world_id))).scalar_one_or_none()
+    if not world:
+        raise HTTPException(status_code=404, detail="WORLD_NOT_FOUND")
+    if req.name is not None:
+        world.name = req.name
+    if req.description is not None:
+        world.description = req.description
+    if req.order_index is not None:
+        world.order_index = req.order_index
+    await db.commit()
+    return {"status": "SUCCESS", "world": {"id": str(world.id), "slug": world.slug, "name": world.name}}
+
+
+@router.delete("/curriculum/worlds/{world_id}", summary="Delete a curriculum world")
+async def delete_world(world_id: uuid.UUID, request: Request, db: AsyncSession = Depends(get_db)):
+    require_content_editor(request)
+    world = (await db.execute(select(World).where(World.id == world_id))).scalar_one_or_none()
+    if not world:
+        raise HTTPException(status_code=404, detail="WORLD_NOT_FOUND")
+    await cascade_delete_world_internal(db, world_id)
+    await db.commit()
+    return {"status": "SUCCESS", "message": f"World '{world.name}' and all child series/modules deleted successfully."}
+
+
+@router.post("/curriculum/series", summary="Create a new curriculum series")
+async def create_series(req: SeriesCreateRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    require_content_editor(request)
+    import re
+    clean_name = re.sub(r'[^a-z0-9]+', '-', req.name.lower()).strip('-')
+    slug = req.slug or clean_name or f"series-{uuid.uuid4().hex[:6]}"
+    existing = (await db.execute(select(Series.id).where(Series.slug == slug))).scalar_one_or_none()
+    if existing:
+        slug = f"{slug}-{uuid.uuid4().hex[:6]}"
+    series = Series(
+        id=uuid.uuid4(),
+        world_id=req.world_id,
+        slug=slug,
+        name=req.name,
+        description=req.description or "",
+        order_index=req.order_index,
+    )
+    db.add(series)
+    await db.commit()
+    await db.refresh(series)
+    return {"status": "SUCCESS", "series": {"id": str(series.id), "slug": series.slug, "name": series.name}}
+
+
+@router.patch("/curriculum/series/{series_id}", summary="Update series metadata")
+async def update_series(series_id: uuid.UUID, req: SeriesUpdateRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    require_content_editor(request)
+    s = (await db.execute(select(Series).where(Series.id == series_id))).scalar_one_or_none()
+    if not s:
+        raise HTTPException(status_code=404, detail="SERIES_NOT_FOUND")
+    if req.name is not None:
+        s.name = req.name
+    if req.description is not None:
+        s.description = req.description
+    if req.order_index is not None:
+        s.order_index = req.order_index
+    await db.commit()
+    return {"status": "SUCCESS", "series": {"id": str(s.id), "slug": s.slug, "name": s.name}}
+
+
+@router.delete("/curriculum/series/{series_id}", summary="Delete a curriculum series")
+async def delete_series(series_id: uuid.UUID, request: Request, db: AsyncSession = Depends(get_db)):
+    require_content_editor(request)
+    s = (await db.execute(select(Series).where(Series.id == series_id))).scalar_one_or_none()
+    if not s:
+        raise HTTPException(status_code=404, detail="SERIES_NOT_FOUND")
+    await cascade_delete_series_internal(db, series_id)
+    await db.commit()
+    return {"status": "SUCCESS", "message": f"Series '{s.name}' and all child modules deleted successfully."}
+
+
+
 # ── Learner Experience & Catalog Endpoints ────────────────────────────────────
 @router.get("/curriculum/modules", summary="Get catalog of published modules with learner progress")
 async def list_modules(
@@ -683,6 +922,14 @@ async def complete_lesson_by_slug(
             return cached_resp
 
     res = await CurriculumContentService.get_lesson_by_slug(db, slug)
+    if not res:
+        # Development / authoring fallback: find latest version regardless of status
+        l_stmt = select(Lesson, LessonVersion).join(
+            LessonVersion, Lesson.id == LessonVersion.lesson_id
+        ).where(Lesson.slug == slug).order_by(LessonVersion.version_number.desc())
+        fallback_res = await db.execute(l_stmt)
+        res = fallback_res.first()
+
     if not res:
         raise HTTPException(status_code=404, detail="LESSON_NOT_FOUND")
 

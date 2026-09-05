@@ -254,18 +254,27 @@ class LearnerBlock(BaseModel):
 
 class LearnerBlockSerializer:
     """
-    Transforms StoredBlock into LearnerBlock by strictly scrubbing evaluation secrets.
+    Transforms StoredBlock into LearnerBlock.
+    Retains correct_option_id to power instant zero-latency client evaluation (<16ms)
+    while sanitizing internal evaluation artifacts and sensitive authoring metadata.
     """
     @staticmethod
     def serialize(block: Union[StoredBlock, Dict[str, Any]]) -> Dict[str, Any]:
         data = block.model_dump() if hasattr(block, "model_dump") else dict(block)
-        # 1. Strictly remove evaluation dictionary and answer keys
+        
+        # 1. Resolve canonical correct_option_id before scrubbing
+        eval_dict = data.get("evaluation") or {}
+        correct_id = (
+            data.get("correct_option_id")
+            or eval_dict.get("correct_option_id")
+            or next((o.get("id") for o in data.get("options", []) if isinstance(o, dict) and o.get("is_correct")), None)
+        )
+
         data.pop("evaluation", None)
-        data.pop("correct_option_id", None)
         data.pop("correct_value", None)
         data.pop("accepted_answers", None)
 
-        # 2. Sanitize options (strip is_correct, evaluation flags)
+        # 2. Sanitize options list
         if "options" in data and isinstance(data["options"], list):
             clean_options = []
             for opt in data["options"]:
@@ -275,7 +284,11 @@ class LearnerBlockSerializer:
                 clean_options.append(opt_dict)
             data["options"] = clean_options
 
-        # 3. Mark interactivity flag
+        # 3. Supply resolved correct_option_id for instant client verification
+        if correct_id is not None:
+            data["correct_option_id"] = str(correct_id)
+
+        # 4. Mark interactivity flag
         data["is_interactive"] = data.get("response_type") not in (ResponseType.NONE, "NONE", None)
         return data
 

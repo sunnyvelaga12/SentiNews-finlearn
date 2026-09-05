@@ -726,7 +726,7 @@ export const AdminStudioPage = () => {
                     setHasUnsavedChanges(false);
                 }
                 fetchCurriculumTree();
-            }} onDeleteLesson={handleDeleteLesson}/>
+            }} onDeleteLesson={handleDeleteLesson} onRefreshTree={fetchCurriculumTree}/>
           </div>
 
           {/* Column 2: Pedagogical Canvas (Center Flex) */}

@@ -213,103 +213,122 @@ class CurriculumContentService:
 
     @classmethod
     async def get_full_curriculum_tree(cls, db: AsyncSession) -> List[Dict[str, Any]]:
-        """Returns complete curriculum hierarchy tree for Admin Content Studio."""
-        d_stmt = select(Domain).order_by(Domain.order_index.asc())
-        d_res = await db.execute(d_stmt)
-        domains = d_res.scalars().all()
+        """
+        Returns complete curriculum hierarchy tree for Admin Content Studio.
+        Uses batch queries to prevent N+1 remote database roundtrips.
+        """
+        # 1. Single batch queries for all structural levels
+        domains = (await db.execute(select(Domain).order_by(Domain.order_index.asc()))).scalars().all()
+        worlds = (await db.execute(select(World).order_by(World.order_index.asc()))).scalars().all()
+        series_list = (await db.execute(select(Series).order_by(Series.order_index.asc()))).scalars().all()
+        modules = (await db.execute(select(Module).order_by(Module.order_index.asc()))).scalars().all()
+        units = (await db.execute(select(Unit).order_by(Unit.order_index.asc()))).scalars().all()
+
+        # 2. Batch fetch all UnitConcepts with Concept slugs and IDs
+        uc_stmt = (
+            select(UnitConcept.unit_id, Concept.id, Concept.slug)
+            .join(Concept, Concept.id == UnitConcept.concept_id)
+            .order_by(UnitConcept.order_index.asc())
+        )
+        uc_res = await db.execute(uc_stmt)
+        concepts_by_unit: Dict[uuid.UUID, Set[str]] = {}
+        for unit_id, c_id, c_slug in uc_res.all():
+            if unit_id not in concepts_by_unit:
+                concepts_by_unit[unit_id] = set()
+            concepts_by_unit[unit_id].add(str(c_id))
+            if c_slug:
+                concepts_by_unit[unit_id].add(c_slug)
+
+        # 3. Batch fetch all Lessons and their latest LessonVersions
+        l_stmt = (
+            select(
+                Lesson.id,
+                Lesson.slug,
+                LessonVersion.id,
+                LessonVersion.version_number,
+                LessonVersion.title,
+                LessonVersion.status,
+                LessonVersion.concept_ids,
+            )
+            .join(LessonVersion, Lesson.id == LessonVersion.lesson_id)
+            .order_by(Lesson.id, LessonVersion.version_number.desc())
+        )
+        l_res = await db.execute(l_stmt)
+        latest_lessons: Dict[uuid.UUID, Dict[str, Any]] = {}
+        for lid, slug, vid, vnum, title, status, cids in l_res.all():
+            if lid not in latest_lessons:
+                latest_lessons[lid] = {
+                    "id": str(lid),
+                    "slug": slug,
+                    "title": title,
+                    "status": status,
+                    "version_id": str(vid),
+                    "version_number": vnum,
+                    "concept_keys": {str(c) for c in (cids or [])},
+                }
+
+        # 4. Group hierarchy in-memory (O(N) operations)
+        units_by_module: Dict[uuid.UUID, List[Dict[str, Any]]] = {}
+        for u in units:
+            u_concept_keys = concepts_by_unit.get(u.id, set())
+            u_lessons = []
+            for lesson_info in latest_lessons.values():
+                if u_concept_keys and (u_concept_keys & lesson_info["concept_keys"]):
+                    u_lessons.append({
+                        "id": lesson_info["id"],
+                        "slug": lesson_info["slug"],
+                        "title": lesson_info["title"],
+                        "status": lesson_info["status"],
+                        "version_id": lesson_info["version_id"],
+                        "version_number": lesson_info["version_number"],
+                    })
+
+            unit_node = {
+                "id": str(u.id),
+                "slug": u.slug,
+                "name": u.name,
+                "order_index": u.order_index,
+                "lessons": u_lessons,
+            }
+            units_by_module.setdefault(u.module_id, []).append(unit_node)
+
+        modules_by_series: Dict[uuid.UUID, List[Dict[str, Any]]] = {}
+        for m in modules:
+            mod_node = {
+                "id": str(m.id),
+                "slug": m.slug,
+                "name": m.name,
+                "description": m.description,
+                "units": units_by_module.get(m.id, []),
+            }
+            modules_by_series.setdefault(m.series_id, []).append(mod_node)
+
+        series_by_world: Dict[uuid.UUID, List[Dict[str, Any]]] = {}
+        for s in series_list:
+            s_node = {
+                "id": str(s.id),
+                "slug": s.slug,
+                "name": s.name,
+                "modules": modules_by_series.get(s.id, []),
+            }
+            series_by_world.setdefault(s.world_id, []).append(s_node)
+
+        worlds_by_domain: Dict[uuid.UUID, List[Dict[str, Any]]] = {}
+        for w in worlds:
+            w_node = {
+                "id": str(w.id),
+                "slug": w.slug,
+                "name": w.name,
+                "series": series_by_world.get(w.id, []),
+            }
+            worlds_by_domain.setdefault(w.domain_id, []).append(w_node)
 
         tree = []
-        for domain in domains:
-            w_stmt = select(World).where(World.domain_id == domain.id).order_by(World.order_index.asc())
-            w_res = await db.execute(w_stmt)
-            worlds = w_res.scalars().all()
-
-            world_nodes = []
-            for world in worlds:
-                s_stmt = select(Series).where(Series.world_id == world.id).order_by(Series.order_index.asc())
-                s_res = await db.execute(s_stmt)
-                series_list = s_res.scalars().all()
-
-                series_nodes = []
-                for s in series_list:
-                    m_stmt = select(Module).where(Module.series_id == s.id).order_by(Module.order_index.asc())
-                    m_res = await db.execute(m_stmt)
-                    modules = m_res.scalars().all()
-
-                    mod_nodes = []
-                    for m in modules:
-                        u_stmt = select(Unit).where(Unit.module_id == m.id).order_by(Unit.order_index.asc())
-                        u_res = await db.execute(u_stmt)
-                        units = u_res.scalars().all()
-
-                        unit_nodes = []
-                        for u in units:
-                            # Fetch unit concepts (by ID and slug)
-                            uc_stmt = (
-                                select(Concept)
-                                .join(UnitConcept, Concept.id == UnitConcept.concept_id)
-                                .where(UnitConcept.unit_id == u.id)
-                                .order_by(UnitConcept.order_index.asc())
-                            )
-                            uc_res = await db.execute(uc_stmt)
-                            unit_concepts = uc_res.scalars().all()
-                            u_concept_keys = {str(c.id) for c in unit_concepts} | {c.slug for c in unit_concepts}
-
-                            # Find all lessons associated with these concepts
-                            u_lessons = []
-                            l_stmt = (
-                                select(Lesson, LessonVersion)
-                                .join(LessonVersion, Lesson.id == LessonVersion.lesson_id)
-                                .order_by(LessonVersion.version_number.desc())
-                            )
-                            l_res = await db.execute(l_stmt)
-                            seen_lesson_ids = set()
-                            for l, lv in l_res.all():
-                                if l.id in seen_lesson_ids:
-                                    continue
-                                lv_keys = {str(c) for c in (lv.concept_ids or [])}
-                                if u_concept_keys and (u_concept_keys & lv_keys):
-                                    seen_lesson_ids.add(l.id)
-                                    u_lessons.append({
-                                        "id": str(l.id),
-                                        "slug": l.slug,
-                                        "title": lv.title,
-                                        "status": lv.status,
-                                        "version_id": str(lv.id),
-                                        "version_number": lv.version_number,
-                                    })
-
-                            unit_nodes.append({
-                                "id": str(u.id),
-                                "slug": u.slug,
-                                "name": u.name,
-                                "order_index": u.order_index,
-                                "lessons": u_lessons,
-                            })
-
-                        mod_nodes.append({
-                            "id": str(m.id),
-                            "slug": m.slug,
-                            "name": m.name,
-                            "description": m.description,
-                            "units": unit_nodes
-                        })
-                    series_nodes.append({
-                        "id": str(s.id),
-                        "slug": s.slug,
-                        "name": s.name,
-                        "modules": mod_nodes
-                    })
-                world_nodes.append({
-                    "id": str(world.id),
-                    "slug": world.slug,
-                    "name": world.name,
-                    "series": series_nodes
-                })
+        for d in domains:
             tree.append({
-                "id": str(domain.id),
-                "slug": domain.slug,
-                "name": domain.name,
-                "worlds": world_nodes
+                "id": str(d.id),
+                "slug": d.slug,
+                "name": d.name,
+                "worlds": worlds_by_domain.get(d.id, []),
             })
         return tree
