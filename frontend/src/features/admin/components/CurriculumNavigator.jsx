@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   Globe,
+  Layers,
   Folder,
   BookOpen,
   FileText,
