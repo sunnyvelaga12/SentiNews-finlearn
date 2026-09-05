@@ -121,6 +121,27 @@ export const AdminStudioPage = () => {
         };
     }, [tree]);
 
+    const persistActiveContext = (lessonId, blockIdx = null) => {
+        if (typeof window === 'undefined' || !lessonId) return;
+        try {
+            localStorage.setItem('lcms_active_lesson_id', lessonId);
+            sessionStorage.setItem('lcms_active_lesson_id', lessonId);
+            if (blockIdx !== null && blockIdx !== undefined) {
+                localStorage.setItem(`lcms_active_block_${lessonId}`, String(blockIdx));
+            }
+            const url = new URL(window.location.href);
+            url.searchParams.set('lessonId', lessonId);
+            if (blockIdx !== null && blockIdx !== undefined && blockIdx > 0) {
+                url.searchParams.set('block', String(blockIdx));
+            } else if (blockIdx === 0) {
+                url.searchParams.delete('block');
+            }
+            window.history.replaceState(null, '', url.toString());
+        } catch (e) {
+            console.warn('Failed to persist active context:', e);
+        }
+    };
+
     const fetchCurriculumTree = useCallback(async (targetLessonId = null) => {
         try {
             setIsLoadingTree(true);
@@ -151,10 +172,8 @@ export const AdminStudioPage = () => {
                             setSelectedModule(item.module);
                             setSelectedUnit(item.unit);
                             setSelectedLesson(l);
-                            if (typeof window !== 'undefined' && l.id) {
-                                sessionStorage.setItem('lcms_active_lesson_id', l.id);
-                            }
-                            loadLessonDraft(l);
+                            persistActiveContext(l.id, 0);
+                            loadLessonDraft(l, 0);
                             return;
                         }
                     }
@@ -165,16 +184,24 @@ export const AdminStudioPage = () => {
                     return;
                 }
 
-                // Otherwise, check sessionStorage for previously active lesson
-                const sessionTargetId = typeof window !== 'undefined' ? sessionStorage.getItem('lcms_active_lesson_id') : null;
-                if (sessionTargetId) {
+                // Otherwise, check URL query param -> localStorage -> sessionStorage for previously active lesson
+                const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+                const urlLessonId = searchParams?.get('lessonId');
+                const urlBlock = searchParams?.get('block');
+                const urlBlockIdx = urlBlock !== null ? parseInt(urlBlock, 10) : null;
+                const storedLessonId = typeof window !== 'undefined'
+                    ? (urlLessonId || localStorage.getItem('lcms_active_lesson_id') || sessionStorage.getItem('lcms_active_lesson_id'))
+                    : null;
+
+                if (storedLessonId) {
                     for (const item of allUnitsWithLessons) {
-                        const l = item.lessons.find((les) => les.id === sessionTargetId || les.version_id === sessionTargetId);
+                        const l = item.lessons.find((les) => les.id === storedLessonId || les.version_id === storedLessonId || les.slug === storedLessonId);
                         if (l) {
                             setSelectedModule(item.module);
                             setSelectedUnit(item.unit);
                             setSelectedLesson(l);
-                            loadLessonDraft(l);
+                            persistActiveContext(l.id, urlBlockIdx);
+                            loadLessonDraft(l, urlBlockIdx);
                             return;
                         }
                     }
@@ -187,10 +214,8 @@ export const AdminStudioPage = () => {
                         setSelectedModule(item.module);
                         setSelectedUnit(item.unit);
                         setSelectedLesson(firstLesson);
-                        if (typeof window !== 'undefined' && firstLesson.id) {
-                            sessionStorage.setItem('lcms_active_lesson_id', firstLesson.id);
-                        }
-                        loadLessonDraft(firstLesson);
+                        persistActiveContext(firstLesson.id, 0);
+                        loadLessonDraft(firstLesson, 0);
                         return;
                     }
                 }
@@ -207,10 +232,10 @@ export const AdminStudioPage = () => {
         fetchCurriculumTree();
     }, [fetchCurriculumTree]);
     // ── 2. Load Selected Lesson Draft ──────────────────────────────────────────
-    const loadLessonDraft = async (lesson) => {
+    const loadLessonDraft = async (lesson, targetBlockIdx = null) => {
         try {
-            if (lesson.id && typeof window !== 'undefined') {
-                sessionStorage.setItem('lcms_active_lesson_id', lesson.id);
+            if (lesson.id) {
+                persistActiveContext(lesson.id, targetBlockIdx);
             }
             if (lesson.version_id) {
                 const data = await apiClient(`/api/v1/admin/lessons/draft/${lesson.version_id}`);
@@ -223,12 +248,45 @@ export const AdminStudioPage = () => {
                     setCurrentVersionId(data.version_id || lesson.version_id);
                     setVersionNumber(data.version_number || lesson.version_number || 1);
                     setStatus(data.status || lesson.status);
+
                     // Populate blocks sorted strictly by order_index
                     const rawBlocks = data.blocks || [];
+                    let sortedBlocks = [];
                     if (rawBlocks.length > 0) {
-                        const sortedBlocks = [...rawBlocks].sort(
+                        sortedBlocks = [...rawBlocks].sort(
                             (a, b) => (a.order_index ?? 0) - (b.order_index ?? 0)
                         );
+                    }
+
+                    // Check local crash-proof backup for this version (e.g. if page refreshed before save)
+                    const backupKey = `lcms_draft_backup_${data.version_id || lesson.version_id}`;
+                    let hasRestoredBackup = false;
+                    if (typeof window !== 'undefined') {
+                        try {
+                            const rawBackup = localStorage.getItem(backupKey);
+                            if (rawBackup) {
+                                const backup = JSON.parse(rawBackup);
+                                if (backup) {
+                                    if (Array.isArray(backup.blocks) && backup.blocks.length > 0) {
+                                        sortedBlocks = backup.blocks;
+                                        hasRestoredBackup = true;
+                                    }
+                                    if (backup.lessonTitle) setLessonTitle(backup.lessonTitle);
+                                    if (backup.durationMinutes) setDurationMinutes(backup.durationMinutes);
+                                    if (backup.level) setLevel(backup.level);
+                                    if (backup.learningObjectives) setLearningObjectives(backup.learningObjectives);
+                                    if (hasRestoredBackup) {
+                                        hasPendingChangesRef.current = true;
+                                        setHasUnsavedChanges(true);
+                                    }
+                                }
+                            }
+                        } catch (e) {
+                            console.warn('Failed to parse local draft backup:', e);
+                        }
+                    }
+
+                    if (sortedBlocks.length > 0) {
                         setBlocks(sortedBlocks);
                     }
                     else {
@@ -258,9 +316,26 @@ export const AdminStudioPage = () => {
                             },
                         ]);
                     }
-                    setActiveBlockIndex(0);
-                    hasPendingChangesRef.current = false;
-                    setHasUnsavedChanges(false);
+
+                    // Restore block index safely from targetBlockIdx or URL/localStorage
+                    let resolvedBlockIdx = 0;
+                    if (targetBlockIdx !== null && targetBlockIdx !== undefined) {
+                        resolvedBlockIdx = targetBlockIdx;
+                    } else if (typeof window !== 'undefined') {
+                        const urlBlock = new URLSearchParams(window.location.search).get('block');
+                        const localBlock = localStorage.getItem(`lcms_active_block_${lesson.id}`);
+                        const parsed = parseInt(urlBlock !== null ? urlBlock : (localBlock || '0'), 10);
+                        if (!isNaN(parsed)) resolvedBlockIdx = parsed;
+                    }
+                    const totalBlocks = sortedBlocks.length > 0 ? sortedBlocks.length : 2;
+                    const safeBlockIdx = Math.max(0, Math.min(resolvedBlockIdx, totalBlocks - 1));
+                    setActiveBlockIndex(safeBlockIdx);
+                    persistActiveContext(lesson.id, safeBlockIdx);
+
+                    if (!hasRestoredBackup) {
+                        hasPendingChangesRef.current = false;
+                        setHasUnsavedChanges(false);
+                    }
                     setOccConflict(null);
                     return;
                 }
@@ -335,6 +410,12 @@ export const AdminStudioPage = () => {
             if (data) {
                 setVersionNumber(data.version_number);
                 latestStateRef.current.versionNumber = data.version_number;
+                // Clear local backup once saved to backend
+                if (typeof window !== 'undefined' && stateToSave.currentVersionId) {
+                    try {
+                        localStorage.removeItem(`lcms_draft_backup_${stateToSave.currentVersionId}`);
+                    } catch (e) {}
+                }
                 // Only clear dirty state if no further edits were made while the save was in flight
                 if (latestStateRef.current.blocks === stateToSave.blocks &&
                     latestStateRef.current.lessonTitle === stateToSave.lessonTitle &&
@@ -368,16 +449,65 @@ export const AdminStudioPage = () => {
         }
     };
 
-    // ── 4b. Debounced Autosave (1000ms idle with OCC If-Match) ─────────────────
+    // ── 4b. Debounced Autosave (600ms idle with OCC If-Match) ─────────────────
     useEffect(() => {
         if (!hasUnsavedChanges || !currentVersionId || isSaving || occConflict) {
             return;
         }
         const timer = setTimeout(() => {
             handleSaveDraft();
-        }, 1000);
+        }, 600);
         return () => clearTimeout(timer);
     }, [hasUnsavedChanges, currentVersionId, isSaving, occConflict, lessonTitle, durationMinutes, learningObjectives, blocks, versionNumber]);
+
+    // ── 4c. BeforeUnload Listener (Flush & Crash-Proof Local Storage Safeguard) ─
+    useEffect(() => {
+        const handleBeforeUnload = (e) => {
+            if (hasUnsavedChanges) {
+                const state = latestStateRef.current;
+                if (state?.currentVersionId && typeof window !== 'undefined') {
+                    try {
+                        localStorage.setItem(`lcms_draft_backup_${state.currentVersionId}`, JSON.stringify({
+                            blocks: state.blocks,
+                            lessonTitle: state.lessonTitle,
+                            lessonSlug: state.lessonSlug,
+                            durationMinutes: state.durationMinutes,
+                            level: state.level,
+                            learningObjectives: state.learningObjectives,
+                            savedAt: Date.now(),
+                        }));
+                    } catch (err) {}
+                }
+                e.preventDefault();
+                e.returnValue = '';
+            }
+        };
+        window.addEventListener('beforeunload', handleBeforeUnload);
+        return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+    }, [hasUnsavedChanges]);
+
+    // ── 4d. Active Block Context & Keystroke-Level Backup Persistence ─────────
+    useEffect(() => {
+        if (selectedLesson?.id && activeBlockIndex !== undefined && activeBlockIndex !== null) {
+            persistActiveContext(selectedLesson.id, activeBlockIndex);
+        }
+    }, [selectedLesson?.id, activeBlockIndex]);
+
+    useEffect(() => {
+        if (hasUnsavedChanges && currentVersionId && typeof window !== 'undefined') {
+            try {
+                localStorage.setItem(`lcms_draft_backup_${currentVersionId}`, JSON.stringify({
+                    blocks,
+                    lessonTitle,
+                    lessonSlug,
+                    durationMinutes,
+                    level,
+                    learningObjectives,
+                    savedAt: Date.now(),
+                }));
+            } catch (err) {}
+        }
+    }, [hasUnsavedChanges, currentVersionId, blocks, lessonTitle, lessonSlug, durationMinutes, level, learningObjectives]);
 
     // ── 5. Staged Creation Handlers ────────────────────────────────────────────
     const handleCreateModule = async (moduleData) => {
@@ -462,7 +592,8 @@ export const AdminStudioPage = () => {
                     status: 'DRAFT',
                 };
                 setSelectedLesson(newLesson);
-                loadLessonDraft(newLesson);
+                persistActiveContext(newLesson.id, 0);
+                loadLessonDraft(newLesson, 0);
             }
             return data;
         } catch (err) {
@@ -480,6 +611,14 @@ export const AdminStudioPage = () => {
             setLessonSlug('');
             setBlocks([]);
             setHasUnsavedChanges(false);
+            if (typeof window !== 'undefined') {
+                localStorage.removeItem('lcms_active_lesson_id');
+                sessionStorage.removeItem('lcms_active_lesson_id');
+                const url = new URL(window.location.href);
+                url.searchParams.delete('lessonId');
+                url.searchParams.delete('block');
+                window.history.replaceState(null, '', url.toString());
+            }
         }
         await fetchCurriculumTree();
     };
@@ -548,6 +687,17 @@ export const AdminStudioPage = () => {
             const current = prevBlocks[idx];
             const resolved = typeof updated === 'function' ? updated(current) : updated;
             nextBlocks[idx] = resolved;
+
+            const vId = latestStateRef.current?.currentVersionId;
+            if (vId && typeof window !== 'undefined') {
+                try {
+                    localStorage.setItem(`lcms_draft_backup_${vId}`, JSON.stringify({
+                        blocks: nextBlocks,
+                        savedAt: Date.now(),
+                    }));
+                } catch (e) {}
+            }
+
             return nextBlocks;
         });
         hasPendingChangesRef.current = true;
@@ -800,7 +950,18 @@ export const AdminStudioPage = () => {
 
       {/* ── Surface Switching ── */}
       {mode === 'PREVIEW' ? (<div className="flex-1 overflow-hidden">
-          <LiveIsolatedPreview lessonTitle={lessonTitle} blocks={blocks} activeStepIndex={activeBlockIndex} onClosePreview={() => setMode('EDIT')}/>
+          <LiveIsolatedPreview
+            lessonTitle={lessonTitle}
+            blocks={blocks}
+            activeStepIndex={activeBlockIndex}
+            onStepChange={(idx) => {
+              setActiveBlockIndex(idx);
+              if (selectedLesson?.id) {
+                persistActiveContext(selectedLesson.id, idx);
+              }
+            }}
+            onClosePreview={() => setMode('EDIT')}
+          />
         </div>) : surfaceTab === 'REVIEWS' ? (<ReviewInbox userRole={userRole} onOpenLesson={(versionId) => {
                 setSurfaceTab('STUDIO');
                 // Select and load lesson draft
@@ -841,7 +1002,8 @@ export const AdminStudioPage = () => {
                 setSelectedLesson(lesson);
                 setSelectedUnit(unit);
                 setSelectedModule(mod);
-                loadLessonDraft(lesson);
+                persistActiveContext(lesson?.id, 0);
+                loadLessonDraft(lesson, 0);
             }} onCreateModule={handleCreateModule} onCreateUnit={handleCreateUnit} onCreateLesson={handleCreateLesson} onPromptUnsavedChanges={(targetAction) => {
                 setPendingNavigationAction(() => targetAction);
             }} onEditModule={() => fetchCurriculumTree()} onDeleteModule={(modId) => {
@@ -878,8 +1040,16 @@ export const AdminStudioPage = () => {
                 if (updates.learningObjectives !== undefined)
                     setLearningObjectives(updates.learningObjectives);
                 setHasUnsavedChanges(true);
-            }} onSelectBlock={(idx) => setActiveBlockIndex(idx)} onUpdateBlock={handleUpdateBlock} onMoveBlock={handleMoveBlock} onDuplicateBlock={handleDuplicateBlock} onDeleteBlock={handleDeleteBlock} onAddBlock={handleAddBlock} onReorderBlocks={handleReorderBlocks} onPreviewStep={(idx) => {
+            }} onSelectBlock={(idx) => {
                 setActiveBlockIndex(idx);
+                if (selectedLesson?.id) {
+                    persistActiveContext(selectedLesson.id, idx);
+                }
+            }} onUpdateBlock={handleUpdateBlock} onMoveBlock={handleMoveBlock} onDuplicateBlock={handleDuplicateBlock} onDeleteBlock={handleDeleteBlock} onAddBlock={handleAddBlock} onReorderBlocks={handleReorderBlocks} onPreviewStep={(idx) => {
+                setActiveBlockIndex(idx);
+                if (selectedLesson?.id) {
+                    persistActiveContext(selectedLesson.id, idx);
+                }
                 setMode('PREVIEW');
             }}/>
           ) : (
@@ -900,7 +1070,19 @@ export const AdminStudioPage = () => {
 
           {/* Column 3: Properties, Quality & Sources Inspector (Right 340px) */}
           {selectedLesson ? (
-            <InspectorAndQualityPanel selectedBlock={blocks[activeBlockIndex]} selectedBlockIndex={activeBlockIndex} qualityResult={qualityResult} onUpdateSelectedBlock={(updated) => handleUpdateBlock(activeBlockIndex, updated)} onJumpToBlock={(idx) => setActiveBlockIndex(idx)} onApplyQuickFix={handleApplyQuickFix}/>
+            <InspectorAndQualityPanel
+              selectedBlock={blocks[activeBlockIndex]}
+              selectedBlockIndex={activeBlockIndex}
+              qualityResult={qualityResult}
+              onUpdateSelectedBlock={(updated) => handleUpdateBlock(activeBlockIndex, updated)}
+              onJumpToBlock={(idx) => {
+                setActiveBlockIndex(idx);
+                if (selectedLesson?.id) {
+                  persistActiveContext(selectedLesson.id, idx);
+                }
+              }}
+              onApplyQuickFix={handleApplyQuickFix}
+            />
           ) : (
             <div className="w-80 shrink-0 h-full bg-white border-l border-slate-200 flex flex-col items-center justify-center p-6 text-center text-slate-400">
               <Sparkles className="w-8 h-8 text-slate-300 mb-2" />

@@ -95,6 +95,19 @@ export const SessionPlayerPage = () => {
                             },
                         }));
                         setItems(mappedItems);
+                        const targetId = location.state.sessionId || currentSessId || location.state?.lessonSlug;
+                        const urlStep = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('step') : null;
+                        const localStep = typeof window !== 'undefined' && targetId ? localStorage.getItem(`sentinews_step_${targetId}`) : null;
+                        let initIdx = 0;
+                        if (urlStep !== null) {
+                            const p = parseInt(urlStep, 10) - 1;
+                            if (!isNaN(p) && p >= 0 && p < mappedItems.length) initIdx = p;
+                        } else if (localStep !== null) {
+                            const p = parseInt(localStep, 10);
+                            if (!isNaN(p) && p >= 0 && p < mappedItems.length) initIdx = p;
+                        }
+                        setCurrentIdx(initIdx);
+
                         if (location.state.sessionId || isUuid)
                             setActiveSessionId(location.state.sessionId || currentSessId);
                         if (location.state.lessonSlug)
@@ -112,6 +125,19 @@ export const SessionPlayerPage = () => {
                 if (location.state?.items && location.state.items.length > 0) {
                     if (isMounted) {
                         setItems(location.state.items);
+                        const targetId = location.state.sessionId || currentSessId || location.state?.lessonSlug;
+                        const urlStep = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('step') : null;
+                        const localStep = typeof window !== 'undefined' && targetId ? localStorage.getItem(`sentinews_step_${targetId}`) : null;
+                        let initIdx = 0;
+                        if (urlStep !== null) {
+                            const p = parseInt(urlStep, 10) - 1;
+                            if (!isNaN(p) && p >= 0 && p < location.state.items.length) initIdx = p;
+                        } else if (localStep !== null) {
+                            const p = parseInt(localStep, 10);
+                            if (!isNaN(p) && p >= 0 && p < location.state.items.length) initIdx = p;
+                        }
+                        setCurrentIdx(initIdx);
+
                         if (location.state.sessionId)
                             setActiveSessionId(location.state.sessionId);
                         if (location.state.lessonSlug)
@@ -150,9 +176,20 @@ export const SessionPlayerPage = () => {
                 if (isMounted) {
                     if (res.items && res.items.length > 0) {
                         setItems(res.items);
-                        if (res.resume_position && res.resume_position > 1 && res.resume_position <= res.items.length) {
-                            setCurrentIdx(res.resume_position - 1);
+                        const targetId = currentSessId || res.lesson_slug;
+                        const urlStep = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('step') : null;
+                        const localStep = typeof window !== 'undefined' && targetId ? localStorage.getItem(`sentinews_step_${targetId}`) : null;
+                        let initIdx = 0;
+                        if (urlStep !== null) {
+                            const p = parseInt(urlStep, 10) - 1;
+                            if (!isNaN(p) && p >= 0 && p < res.items.length) initIdx = p;
+                        } else if (localStep !== null) {
+                            const p = parseInt(localStep, 10);
+                            if (!isNaN(p) && p >= 0 && p < res.items.length) initIdx = p;
+                        } else if (res.resume_position && res.resume_position > 1 && res.resume_position <= res.items.length) {
+                            initIdx = res.resume_position - 1;
                         }
+                        setCurrentIdx(initIdx);
                     }
                     if (res.lesson_slug)
                         setSessionLessonSlug(res.lesson_slug);
@@ -214,6 +251,13 @@ export const SessionPlayerPage = () => {
         if (nextIdx >= items.length) {
             setIsLessonCompleted(true);
             const targetSlug = sessionLessonSlug;
+            if (typeof window !== 'undefined') {
+                localStorage.removeItem(`sentinews_step_${activeSessionId}`);
+                if (targetSlug) localStorage.removeItem(`sentinews_step_${targetSlug}`);
+                const url = new URL(window.location.href);
+                url.searchParams.delete('step');
+                window.history.replaceState(null, '', url.toString());
+            }
             if (targetSlug) {
                 // 1. Authoritative backend completion recording
                 try {
@@ -248,6 +292,15 @@ export const SessionPlayerPage = () => {
         }
         else {
             setCurrentIdx(nextIdx);
+            if (typeof window !== 'undefined') {
+                try {
+                    localStorage.setItem(`sentinews_step_${activeSessionId}`, String(nextIdx));
+                    if (sessionLessonSlug) localStorage.setItem(`sentinews_step_${sessionLessonSlug}`, String(nextIdx));
+                    const url = new URL(window.location.href);
+                    url.searchParams.set('step', String(nextIdx + 1));
+                    window.history.replaceState(null, '', url.toString());
+                } catch (e) {}
+            }
             const nextItem = items[nextIdx];
             if (activeSessionId && activeSessionId !== 'demo' && nextItem) {
                 apiClient(`/api/v1/learning/sessions/${activeSessionId}/progress`, {

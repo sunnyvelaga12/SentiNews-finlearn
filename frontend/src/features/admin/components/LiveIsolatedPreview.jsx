@@ -4,10 +4,28 @@ import { Monitor, Tablet, Smartphone, RotateCcw, ArrowLeft, ArrowRight, ShieldCh
 import { getCachedMediaUrl } from '../utils/mediaResolver';
 import { resolveEndpointUrl } from '../../../services/apiClient';
 
-export const LiveIsolatedPreview = ({ lessonTitle, blocks, activeStepIndex = 0, onClosePreview, }) => {
+export const LiveIsolatedPreview = ({
+    lessonTitle,
+    blocks = [],
+    activeStepIndex = 0,
+    onStepChange,
+    onClosePreview,
+}) => {
     // Navigation & Scope
     const [previewMode, setPreviewMode] = useState('STEP');
     const [currentStep, setCurrentStep] = useState(activeStepIndex);
+
+    React.useEffect(() => {
+        if (activeStepIndex !== undefined && activeStepIndex !== null && activeStepIndex !== currentStep) {
+            setCurrentStep(activeStepIndex);
+        }
+    }, [activeStepIndex]);
+
+    const handleSelectStep = (step) => {
+        const next = Math.max(0, Math.min(step, (blocks.length || 1) - 1));
+        setCurrentStep(next);
+        onStepChange?.(next);
+    };
     const [viewport, setViewport] = useState('DESKTOP');
     const [syntheticState, setSyntheticState] = useState('FRESH');
     // Local Deterministic Evaluation State (strictly in-memory, ZERO network calls)
@@ -297,16 +315,30 @@ export const LiveIsolatedPreview = ({ lessonTitle, blocks, activeStepIndex = 0, 
               )}
             </div>)}
 
-          {/* Navigation Controls in Full Mode */}
-          {previewMode === 'FULL' && (<div className="mt-8 pt-4 border-t border-slate-800 flex items-center justify-between">
-              <button onClick={() => setCurrentStep((c) => Math.max(0, c - 1))} disabled={currentStep === 0} className="flex items-center gap-1 px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-xs font-semibold text-slate-300">
-                <ArrowLeft className="w-4 h-4"/> Previous
+          {/* Navigation Controls across steps */}
+          {blocks.length > 1 && (
+            <div className="mt-8 pt-4 border-t border-slate-800 flex items-center justify-between">
+              <button
+                onClick={() => handleSelectStep(currentStep - 1)}
+                disabled={currentStep === 0}
+                className="flex items-center gap-1 px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-xs font-semibold text-slate-300 transition-colors"
+              >
+                <ArrowLeft className="w-4 h-4" /> Previous Step
               </button>
 
-              <button onClick={() => setCurrentStep((c) => Math.min(blocks.length - 1, c + 1))} disabled={currentStep === blocks.length - 1} className="flex items-center gap-1 px-4 py-1.5 rounded bg-blue-600 hover:bg-blue-500 disabled:opacity-30 text-xs font-bold text-white">
-                Next Step <ArrowRight className="w-4 h-4"/>
+              <div className="text-xs text-slate-400 font-medium">
+                Step <span className="font-bold text-white">{currentStep + 1}</span> of {blocks.length}
+              </div>
+
+              <button
+                onClick={() => handleSelectStep(currentStep + 1)}
+                disabled={currentStep === blocks.length - 1}
+                className="flex items-center gap-1 px-4 py-1.5 rounded bg-blue-600 hover:bg-blue-500 disabled:opacity-30 text-xs font-bold text-white transition-colors"
+              >
+                Next Step <ArrowRight className="w-4 h-4" />
               </button>
-            </div>)}
+            </div>
+          )}
         </div>
       </div>
     </div>);

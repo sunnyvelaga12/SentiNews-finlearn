@@ -196,6 +196,32 @@ export const CurriculumNavigator = ({
     setExpandedUnits((prev) => ({ ...uns, ...prev }));
   }, [tree]);
 
+  // Ensure containing domain, module, and unit are expanded for the selected lesson on refresh
+  useEffect(() => {
+    if (!selectedLessonId || !tree.length) return;
+    for (const domain of tree) {
+      const processModules = (moduleList) => {
+        for (const m of (moduleList || [])) {
+          for (const u of (m.units || [])) {
+            if ((u.lessons || []).some((l) => l.id === selectedLessonId || l.version_id === selectedLessonId || l.slug === selectedLessonId)) {
+              setExpandedDomains((prev) => ({ ...prev, [domain.id]: true }));
+              setExpandedModules((prev) => ({ ...prev, [m.id]: true }));
+              setExpandedUnits((prev) => ({ ...prev, [u.id]: true }));
+              return true;
+            }
+          }
+        }
+        return false;
+      };
+      if (processModules(domain.modules)) break;
+      for (const w of (domain.worlds || [])) {
+        for (const s of (w.series || [])) {
+          if (processModules(s.modules)) break;
+        }
+      }
+    }
+  }, [selectedLessonId, tree]);
+
   const toggleDomain = (id) => setExpandedDomains((prev) => ({ ...prev, [id]: !prev[id] }));
   const toggleModule = (id) => setExpandedModules((prev) => ({ ...prev, [id]: !prev[id] }));
   const toggleUnit = (id) => setExpandedUnits((prev) => ({ ...prev, [id]: !prev[id] }));
