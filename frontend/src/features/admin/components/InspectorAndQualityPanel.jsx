@@ -371,7 +371,8 @@ export const InspectorAndQualityPanel = ({ selectedBlock, selectedBlockIndex = 0
                       ...selectedBlock,
                       response_type: e.target.value,
                   })} className="w-full p-2 text-xs font-medium border border-slate-200 rounded-md bg-slate-50 focus:outline-none focus:border-blue-500">
-                    <option value="SINGLE_CHOICE">SINGLE_CHOICE (Multiple Choice)</option>
+                    <option value="SINGLE_CHOICE">SINGLE_CHOICE (Single Choice MCQ)</option>
+                    <option value="MULTIPLE_CHOICE">MULTIPLE_CHOICE (Multi-Select Checkboxes)</option>
                     <option value="IMAGE_SELECTION">IMAGE_SELECTION (Image Multiple Choice)</option>
                     <option value="TRUE_FALSE">TRUE_FALSE (True / False)</option>
                   </select>
@@ -405,20 +406,67 @@ export const InspectorAndQualityPanel = ({ selectedBlock, selectedBlockIndex = 0
                 {/* Multiple Choice Options Configuration */}
                 {['SINGLE_CHOICE', 'MULTIPLE_CHOICE', 'IMAGE_SELECTION'].includes(selectedBlock.response_type || '') && (<div className="space-y-3 pt-2 border-t border-slate-100">
                     <div className="flex items-center justify-between">
-                      <label className="text-xs font-bold text-slate-700">Answer Options</label>
+                      <label className="text-xs font-bold text-slate-700">
+                        {selectedBlock.response_type === 'MULTIPLE_CHOICE'
+                          ? 'Answer Options (Select all correct answers)'
+                          : 'Answer Options (Select correct answer)'}
+                      </label>
                       <button onClick={handleAddOption} className="text-[11px] text-blue-600 hover:text-blue-700 font-semibold flex items-center gap-1">
                         <Plus className="w-3 h-3"/> Add Option
                       </button>
                     </div>
 
                     <div className="space-y-2">
-                      {(selectedBlock.options || []).map((opt, idx) => (<div key={opt.id || idx} className="flex items-center gap-2">
-                          <input type="radio" name="correct_option" checked={opt.is_correct === true || opt.id === selectedBlock.correct_option_id || opt.id === selectedBlock.evaluation?.correct_option_id} onChange={() => handleSetCorrectOption(idx)} title="Mark as correct answer" className="text-blue-600 focus:ring-blue-500 shrink-0"/>
-                          <input type="text" value={opt.text} onChange={(e) => handleOptionChange(idx, e.target.value)} placeholder={`Option ${idx + 1}`} className="flex-1 text-xs p-1.5 border border-slate-200 rounded focus:outline-none focus:border-blue-500"/>
-                          <button onClick={() => handleRemoveOption(idx)} className="p-1 text-slate-400 hover:text-rose-600 rounded">
-                            <Trash2 className="w-3.5 h-3.5"/>
-                          </button>
-                        </div>))}
+                      {(selectedBlock.options || []).map((opt, idx) => {
+                        const isMulti = selectedBlock.response_type === 'MULTIPLE_CHOICE';
+                        const isCorrect = isMulti
+                          ? Boolean(opt.is_correct || (selectedBlock.evaluation?.correct_option_ids || []).includes(opt.id) || (selectedBlock.correct_option_ids || []).includes(opt.id))
+                          : Boolean(opt.is_correct === true || opt.id === selectedBlock.correct_option_id || opt.id === selectedBlock.evaluation?.correct_option_id);
+
+                        return (
+                          <div key={opt.id || idx} className="flex items-center gap-2">
+                            <input
+                              type={isMulti ? 'checkbox' : 'radio'}
+                              name="correct_option"
+                              checked={isCorrect}
+                              onChange={() => {
+                                if (isMulti) {
+                                  const willBeCorrect = !isCorrect;
+                                  const options = (selectedBlock.options || []).map((o, i) =>
+                                    i === idx ? { ...o, is_correct: willBeCorrect } : o
+                                  );
+                                  const correctIds = options.filter((o) => o.is_correct).map((o) => o.id);
+                                  onUpdateSelectedBlock({
+                                    ...selectedBlock,
+                                    options,
+                                    correct_option_ids: correctIds,
+                                    correct_option_id: correctIds[0] || null,
+                                    evaluation: {
+                                      ...(selectedBlock.evaluation || {}),
+                                      correct_option_ids: correctIds,
+                                      correct_option_id: correctIds[0] || null,
+                                    },
+                                  });
+                                } else {
+                                  handleSetCorrectOption(idx);
+                                }
+                              }}
+                              title="Toggle as correct answer"
+                              className="text-blue-600 focus:ring-blue-500 shrink-0 rounded"
+                            />
+                            <input
+                              type="text"
+                              value={opt.text}
+                              onChange={(e) => handleOptionChange(idx, e.target.value)}
+                              placeholder={`Option ${idx + 1}`}
+                              className="flex-1 text-xs p-1.5 border border-slate-200 rounded focus:outline-none focus:border-blue-500"
+                            />
+                            <button onClick={() => handleRemoveOption(idx)} className="p-1 text-slate-400 hover:text-rose-600 rounded">
+                              <Trash2 className="w-3.5 h-3.5"/>
+                            </button>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>)}
 

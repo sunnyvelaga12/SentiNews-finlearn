@@ -3,7 +3,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { telemetry } from '../../services/telemetry';
 import { apiClient, resolveEndpointUrl } from '../../services/apiClient';
 import { useMediaAsset } from '../admin/utils/mediaResolver';
-import { X, ArrowRight, Award, CheckCircle2, AlertCircle, HelpCircle, Check, RefreshCw, Eye, Sliders, BarChart2, AlertTriangle, Zap, Target, Shield, Flame, Lightbulb, } from 'lucide-react';
+import { X, ArrowRight, ArrowLeft, Award, CheckCircle2, AlertCircle, HelpCircle, Check, RefreshCw, Eye, Sliders, BarChart2, AlertTriangle, Zap, Target, Shield, Flame, Lightbulb, } from 'lucide-react';
 import { CandlestickVisualizer, formatCurrency } from '../../components/charts/CandlestickVisualizer';
 import { TableRenderer, SEBIDisclaimer, getRenderer } from './components/renderers/RendererRegistry';
 
@@ -51,6 +51,7 @@ export const SessionPlayerPage = () => {
     const [sessionModuleTitle, setSessionModuleTitle] = useState(location.state?.moduleTitle || '');
     // Remediation & interactive state for current step
     const [selectedOption, setSelectedOption] = useState(null);
+    const [selectedOptions, setSelectedOptions] = useState([]);
     const [remediation, setRemediation] = useState({
         status: 'IDLE',
         title: '',
@@ -73,85 +74,38 @@ export const SessionPlayerPage = () => {
                 let currentSessId = sessionId;
                 const isUuid = currentSessId &&
                     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(currentSessId);
-                if (location.state?.cards && location.state.cards.length > 0) {
-                    if (isMounted) {
-                        const mappedItems = location.state.cards.map((card, idx) => ({
-                            session_item_id: card.id || `card-${idx + 1}`,
-                            activity_id: card.id || `card-${idx + 1}`,
-                            concept_id: card.concept_id || 'concept',
-                            activity_type: card.activity_type || 'OBSERVE',
-                            learning_phase: card.activity_type || 'OBSERVE',
-                            title: card.title || `0${idx + 1} — Activity`,
-                            position: idx + 1,
-                            payload: {
-                                renderer: card.renderer || 'TEXT',
-                                prompt: card.prompt,
-                                options: card.options,
-                                explanation: card.explanation,
-                                correct_option_id: card.correct_option_id,
-                                misconception_map: card.misconception_map,
-                                hints: card.hints,
-                                ...card.payload,
-                            },
-                        }));
-                        setItems(mappedItems);
-                        const targetId = location.state.sessionId || currentSessId || location.state?.lessonSlug;
-                        const urlStep = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('step') : null;
-                        const localStep = typeof window !== 'undefined' && targetId ? localStorage.getItem(`sentinews_step_${targetId}`) : null;
-                        let initIdx = 0;
-                        if (urlStep !== null) {
-                            const p = parseInt(urlStep, 10) - 1;
-                            if (!isNaN(p) && p >= 0 && p < mappedItems.length) initIdx = p;
-                        } else if (localStep !== null) {
-                            const p = parseInt(localStep, 10);
-                            if (!isNaN(p) && p >= 0 && p < mappedItems.length) initIdx = p;
-                        }
-                        setCurrentIdx(initIdx);
 
-                        if (location.state.sessionId || isUuid)
-                            setActiveSessionId(location.state.sessionId || currentSessId);
-                        if (location.state.lessonSlug)
-                            setSessionLessonSlug(location.state.lessonSlug);
-                        if (location.state.lessonTitle)
-                            setSessionLessonTitle(location.state.lessonTitle);
-                        if (location.state.moduleSlug)
-                            setSessionModuleSlug(location.state.moduleSlug);
-                        if (location.state.moduleTitle)
-                            setSessionModuleTitle(location.state.moduleTitle);
-                        setIsLoading(false);
-                    }
-                    return;
+                // Initial optimistic hydration if cards/items passed in route state
+                if (location.state?.cards && location.state.cards.length > 0 && items.length === 0) {
+                    const mappedItems = location.state.cards.map((card, idx) => ({
+                        session_item_id: card.id || `card-${idx + 1}`,
+                        activity_id: card.id || `card-${idx + 1}`,
+                        concept_id: card.concept_id || 'concept',
+                        activity_type: card.activity_type || 'OBSERVE',
+                        learning_phase: card.activity_type || 'OBSERVE',
+                        title: card.title || `0${idx + 1} — Activity`,
+                        position: idx + 1,
+                        payload: {
+                            renderer: card.renderer || 'TEXT',
+                            prompt: card.prompt,
+                            options: card.options,
+                            explanation: card.explanation,
+                            correct_option_id: card.correct_option_id,
+                            misconception_map: card.misconception_map,
+                            hints: card.hints,
+                            ...card.payload,
+                        },
+                    }));
+                    setItems(mappedItems);
+                } else if (location.state?.items && location.state.items.length > 0 && items.length === 0) {
+                    setItems(location.state.items);
                 }
-                if (location.state?.items && location.state.items.length > 0) {
-                    if (isMounted) {
-                        setItems(location.state.items);
-                        const targetId = location.state.sessionId || currentSessId || location.state?.lessonSlug;
-                        const urlStep = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('step') : null;
-                        const localStep = typeof window !== 'undefined' && targetId ? localStorage.getItem(`sentinews_step_${targetId}`) : null;
-                        let initIdx = 0;
-                        if (urlStep !== null) {
-                            const p = parseInt(urlStep, 10) - 1;
-                            if (!isNaN(p) && p >= 0 && p < location.state.items.length) initIdx = p;
-                        } else if (localStep !== null) {
-                            const p = parseInt(localStep, 10);
-                            if (!isNaN(p) && p >= 0 && p < location.state.items.length) initIdx = p;
-                        }
-                        setCurrentIdx(initIdx);
 
-                        if (location.state.sessionId)
-                            setActiveSessionId(location.state.sessionId);
-                        if (location.state.lessonSlug)
-                            setSessionLessonSlug(location.state.lessonSlug);
-                        if (location.state.lessonTitle)
-                            setSessionLessonTitle(location.state.lessonTitle);
-                        if (location.state.moduleSlug)
-                            setSessionModuleSlug(location.state.moduleSlug);
-                        if (location.state.moduleTitle)
-                            setSessionModuleTitle(location.state.moduleTitle);
-                        setIsLoading(false);
-                    }
-                    return;
-                }
+                if (location.state?.sessionId) setActiveSessionId(location.state.sessionId);
+                if (location.state?.lessonSlug) setSessionLessonSlug(location.state.lessonSlug);
+                if (location.state?.lessonTitle) setSessionLessonTitle(location.state.lessonTitle);
+                if (location.state?.moduleSlug) setSessionModuleSlug(location.state.moduleSlug);
+                if (location.state?.moduleTitle) setSessionModuleTitle(location.state.moduleTitle);
                 // If no valid session ID in URL, create one
                 if (!isUuid || currentSessId === 'active') {
                     const createData = await apiClient('/api/v1/learning/sessions', {
@@ -218,10 +172,22 @@ export const SessionPlayerPage = () => {
     const isQuestionStep = currentItem &&
         (currentItem.is_interactive === true ||
          currentItem.response_type === 'SINGLE_CHOICE' ||
+         currentItem.response_type === 'MULTIPLE_CHOICE' ||
+         currentItem.payload?.response_type === 'SINGLE_CHOICE' ||
+         currentItem.payload?.response_type === 'MULTIPLE_CHOICE' ||
          currentItem.response_type === 'IMAGE_SELECTION' ||
          currentItem.response_type === 'TRUE_FALSE' ||
          (currentItem.payload?.options && currentItem.payload.options.length > 0) ||
          ['PREDICT', 'MISCONCEPTION_CHECK', 'APPLICATION', 'TRANSFER'].includes(currentItem.activity_type?.toUpperCase()));
+
+    const isMultiSelect = Boolean(
+        currentItem &&
+        (currentItem.response_type === 'MULTIPLE_CHOICE' ||
+         currentItem.payload?.response_type === 'MULTIPLE_CHOICE' ||
+         (currentItem.payload?.correct_option_ids && currentItem.payload.correct_option_ids.length > 1) ||
+         (currentItem.correct_option_ids && currentItem.correct_option_ids.length > 1))
+    );
+
     // Contract-Driven Presentation Mode Resolution
     const resolvePresentationMode = () => {
         if (!currentItem)
@@ -245,6 +211,7 @@ export const SessionPlayerPage = () => {
     // Reset remediation & hint state when moving to new step
     const handleStepTransition = (nextIdx) => {
         setSelectedOption(null);
+        setSelectedOptions([]);
         setRemediation({ status: 'IDLE', title: '', message: '' });
         setHintTier(0);
         setIsHintOpen(false);
@@ -323,7 +290,8 @@ export const SessionPlayerPage = () => {
     };
     // 2. Handle Option Evaluation (Supportive Misconception Check)
     const handleCheckAnswer = async () => {
-        if (!currentItem || !selectedOption || isSubmitting)
+        const hasSelection = isMultiSelect ? selectedOptions.length > 0 : Boolean(selectedOption);
+        if (!currentItem || !hasSelection || isSubmitting)
             return;
         const payload = currentItem.payload || {};
         const correctOptionId = payload.correct_option_id
@@ -331,22 +299,35 @@ export const SessionPlayerPage = () => {
             || payload.evaluation?.correct_option_id
             || currentItem.options?.find(o => o.is_correct)?.id
             || payload.options?.find(o => o.is_correct)?.id;
+
+        const correctOptionIds = payload.correct_option_ids
+            || currentItem.correct_option_ids
+            || payload.evaluation?.correct_option_ids
+            || (correctOptionId ? [String(correctOptionId)] : null);
+
         const misconceptionMap = payload.misconception_map || {};
         const explanation = payload.explanation
             || payload.feedback?.explanation
             || currentItem.explanation
-            || 'Great job! You identified the key anatomical principle.';
+            || 'Great job! You identified the correct answer.';
 
         // Practice Mode: Instant Synchronous Client Evaluation (<16ms)
-        if (correctOptionId !== undefined && correctOptionId !== null) {
-            const isCorrect = String(selectedOption) === String(correctOptionId);
+        if ((correctOptionId !== undefined && correctOptionId !== null) || (isMultiSelect && correctOptionIds)) {
+            let isCorrect = false;
+            if (isMultiSelect && correctOptionIds && correctOptionIds.length > 0) {
+                const sSet = new Set(selectedOptions.map(String));
+                const eSet = new Set(correctOptionIds.map(String));
+                isCorrect = sSet.size === eSet.size && [...sSet].every(x => eSet.has(x));
+            } else {
+                isCorrect = String(selectedOption) === String(correctOptionId);
+            }
 
             telemetry.track('prediction_submitted', {
                 sessionId: activeSessionId,
                 sessionItemId: currentItem.session_item_id,
                 conceptId: currentItem.concept_id,
                 payload: {
-                    selected_option_id: selectedOption,
+                    selected_option_id: isMultiSelect ? selectedOptions : selectedOption,
                     is_correct: isCorrect,
                     activity_type: currentItem.activity_type,
                     hints_used: hintTier,
@@ -357,7 +338,7 @@ export const SessionPlayerPage = () => {
                 // Misconception: Immediate supportive feedback, never falsely marks correct
                 const hint = misconceptionMap[selectedOption]
                     || payload.feedback?.[selectedOption]
-                    || 'Not quite. Take another look at the options and try again.';
+                    || (isMultiSelect ? 'Some of your selected options are incorrect or missing. Take another look and try again.' : 'Not quite. Take another look at the options and try again.');
                 setRemediation({
                     status: 'MISCONCEPTION',
                     title: 'Not quite.',
@@ -367,10 +348,13 @@ export const SessionPlayerPage = () => {
                 // Background recording of formative attempt
                 const targetActivityId = currentItem.activity_id || currentItem.session_item_id;
                 if (activeSessionId && activeSessionId !== 'demo' && targetActivityId) {
+                    const responseBody = isMultiSelect
+                        ? { selected_option_ids: selectedOptions, selected_option_id: selectedOptions[0] }
+                        : { selected_option_id: selectedOption };
                     apiClient(`/api/v1/learning/sessions/${activeSessionId}/activities/${targetActivityId}/attempts`, {
                         method: 'POST',
                         body: JSON.stringify({
-                            response: { selected_option_id: selectedOption },
+                            response: responseBody,
                             confidence_rating: 3,
                         }),
                     }).catch((err) => console.warn('Formative attempt recorded offline:', err));
@@ -388,10 +372,13 @@ export const SessionPlayerPage = () => {
             // Asynchronous authoritative attempt submission to Canonical Evidence Layer
             const targetActivityId = currentItem.activity_id || currentItem.session_item_id;
             if (activeSessionId && activeSessionId !== 'demo' && targetActivityId) {
+                const responseBody = isMultiSelect
+                    ? { selected_option_ids: selectedOptions, selected_option_id: selectedOptions[0] }
+                    : { selected_option_id: selectedOption };
                 apiClient(`/api/v1/learning/sessions/${activeSessionId}/activities/${targetActivityId}/attempts`, {
                     method: 'POST',
                     body: JSON.stringify({
-                        response: { selected_option_id: selectedOption },
+                        response: responseBody,
                         confidence_rating: 4,
                     }),
                 }).catch((err) => {
@@ -409,10 +396,13 @@ export const SessionPlayerPage = () => {
             let serverExplanation = explanation;
 
             if (activeSessionId && activeSessionId !== 'demo' && targetActivityId) {
+                const responseBody = isMultiSelect
+                    ? { selected_option_ids: selectedOptions, selected_option_id: selectedOptions[0] }
+                    : { selected_option_id: selectedOption };
                 const res = await apiClient(`/api/v1/learning/sessions/${activeSessionId}/activities/${targetActivityId}/attempts`, {
                     method: 'POST',
                     body: JSON.stringify({
-                        response: { selected_option_id: selectedOption },
+                        response: responseBody,
                         confidence_rating: 4,
                     }),
                 });
@@ -430,7 +420,7 @@ export const SessionPlayerPage = () => {
                 setRemediation({
                     status: 'MISCONCEPTION',
                     title: 'Not quite.',
-                    message: misconceptionMap[selectedOption] || 'Not quite. Review the principles and try again.',
+                    message: misconceptionMap[selectedOption] || (isMultiSelect ? 'Some of your selected options are incorrect or missing.' : 'Not quite. Review the principles and try again.'),
                 });
             }
         } catch (err) {
@@ -438,7 +428,7 @@ export const SessionPlayerPage = () => {
             setRemediation({
                 status: 'MISCONCEPTION',
                 title: 'Not quite.',
-                message: 'Review the details and try again.',
+                message: 'Review the concept details above and try again.',
             });
         } finally {
             setIsSubmitting(false);
@@ -447,6 +437,7 @@ export const SessionPlayerPage = () => {
     // 3. Retry Handler (Clear selection, refocus visual without page reset)
     const handleRetry = () => {
         setSelectedOption(null);
+        setSelectedOptions([]);
         setRemediation({ status: 'IDLE', title: '', message: '' });
     };
     // 4. Hint Controller: Progressive 3-Tier Hierarchy (Notice -> Relate -> Recall)
@@ -476,11 +467,16 @@ export const SessionPlayerPage = () => {
             if (e.isComposing)
                 return; // Ignore during IME composition
             const options = currentItem?.payload?.options || [];
-            // Hotkeys 1-4 for options
+            // Hotkeys 1-9 for options
             if (isQuestionStep && remediation.status !== 'CORRECT') {
                 const num = parseInt(e.key, 10);
                 if (num >= 1 && num <= options.length) {
-                    setSelectedOption(options[num - 1].id);
+                    const optId = options[num - 1].id;
+                    if (isMultiSelect) {
+                        setSelectedOptions(prev => prev.includes(optId) ? prev.filter(x => x !== optId) : [...prev, optId]);
+                    } else {
+                        setSelectedOption(optId);
+                    }
                 }
             }
             // Enter key for Check or Continue
@@ -492,7 +488,7 @@ export const SessionPlayerPage = () => {
                     else if (remediation.status === 'MISCONCEPTION') {
                         handleRetry();
                     }
-                    else if (selectedOption) {
+                    else if (isMultiSelect ? selectedOptions.length > 0 : Boolean(selectedOption)) {
                         handleCheckAnswer();
                     }
                 }
@@ -503,7 +499,7 @@ export const SessionPlayerPage = () => {
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [currentItem, selectedOption, remediation.status, currentIdx, isQuestionStep]);
+    }, [currentItem, selectedOption, selectedOptions, isMultiSelect, remediation.status, currentIdx, isQuestionStep]);
     // Authoritative Next Action Resolution
     const resolveNextAction = () => {
         return {
@@ -670,7 +666,6 @@ export const SessionPlayerPage = () => {
             {currentItem.activity_type === 'APPLICATION' && <Target className="w-3.5 h-3.5 text-teal-600"/>}
             <span>{currentItem.title}</span>
           </div>
-
           {/* Provenance Tag */}
           <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase bg-slate-100 text-slate-600 border border-slate-200">
             {provenance?.is_simulated ? 'SIMULATED EXAMPLE' : 'EDUCATIONAL ILLUSTRATION'}
@@ -690,9 +685,13 @@ export const SessionPlayerPage = () => {
           if (rawType === 'HEADING') return null;
 
           const headlineText = (
-            currentItem.title && !currentItem.title.startsWith('Block ')
-              ? currentItem.title
-              : (payload.title || payload.prompt || currentItem.title)
+            (isQuestionStep ? (payload.context || payload.dilemma || payload.prompt) : null) ||
+            (currentItem.title && !currentItem.title.startsWith('Block ') ? currentItem.title : null) ||
+            payload.context ||
+            payload.dilemma ||
+            payload.prompt ||
+            payload.title ||
+            currentItem.title
           );
 
           if (!headlineText) return null;
@@ -737,6 +736,17 @@ export const SessionPlayerPage = () => {
           })()}
         </div>
 
+        {/* If question block has an illustration / diagram, render it */}
+        {isQuestionStep && (payload.image_url || payload.media_asset_id || currentItem.image_url || currentItem.media_asset_id) && (
+          <div className="w-full max-h-72 rounded-2xl bg-white border border-slate-200 p-2 overflow-hidden flex items-center justify-center shadow-sm">
+            <OptionVisual
+              mediaAssetId={payload.media_asset_id || currentItem.media_asset_id}
+              imageUrl={payload.image_url || currentItem.image_url}
+              altText={payload.prompt || 'Question visual'}
+            />
+          </div>
+        )}
+
         {/* Provenance & SEBI Context Callout */}
         {provenance && (<div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-[11px] text-slate-600 flex items-start gap-2.5">
             <Shield className="w-4 h-4 text-blue-600 shrink-0 mt-0.5"/>
@@ -746,71 +756,95 @@ export const SessionPlayerPage = () => {
             </div>
           </div>)}
 
-        {/* Practice Mode Slider (when in PRACTICE stage) */}
-        {currentItem.activity_type === 'PRACTICE' && (<div className="space-y-3 p-5 rounded-2xl bg-white border border-slate-200 shadow-sm">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs font-bold">
-              <span className="text-slate-700 uppercase tracking-wider">
-                Adjust Close Price to Observe Candle Dynamics:
-              </span>
-              <div className="flex items-center gap-2" aria-live="polite">
-                <span className="font-mono text-sm text-blue-600 font-bold">
-                  {formatCurrency(practiceClose, currencyCode, locale)}
+        {/* Practice Mode Slider (STRICTLY when in PRACTICE stage AND rawType is CANDLESTICK) */}
+        {(() => {
+          const rawType = (
+            currentItem.content_type ||
+            payload.content_type ||
+            currentItem.renderer ||
+            payload.renderer ||
+            (payload.ohlc ? 'CANDLESTICK' : 'TEXT')
+          ).toUpperCase();
+
+          if (rawType !== 'CANDLESTICK' || currentItem.activity_type !== 'PRACTICE') {
+            return null;
+          }
+
+          return (
+            <div className="space-y-3 p-5 rounded-2xl bg-white border border-slate-200 shadow-sm">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs font-bold">
+                <span className="text-slate-700 uppercase tracking-wider">
+                  Adjust Close Price to Observe Candle Dynamics:
                 </span>
-                {practiceClose > 101 && (<span className="px-2 py-0.5 rounded text-[11px] font-bold uppercase bg-emerald-50 text-emerald-700 border border-emerald-200">
-                    ▲ Bullish (Close &gt; Open)
-                  </span>)}
-                {practiceClose < 99 && (<span className="px-2 py-0.5 rounded text-[11px] font-bold uppercase bg-rose-50 text-rose-700 border border-rose-200">
-                    ▼ Bearish (Close &lt; Open)
-                  </span>)}
-                {Math.abs(practiceClose - 100) <= 1 && (<span className="px-2 py-0.5 rounded text-[11px] font-bold uppercase bg-slate-100 text-slate-700 border border-slate-200">
-                    ▬ Doji (Close ≈ Open)
-                  </span>)}
+                <div className="flex items-center gap-2" aria-live="polite">
+                  <span className="font-mono text-sm text-blue-600 font-bold">
+                    {formatCurrency(practiceClose, currencyCode, locale)}
+                  </span>
+                  {practiceClose > 101 && (<span className="px-2 py-0.5 rounded text-[11px] font-bold uppercase bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      ▲ Bullish (Close &gt; Open)
+                    </span>)}
+                  {practiceClose < 99 && (<span className="px-2 py-0.5 rounded text-[11px] font-bold uppercase bg-rose-50 text-rose-700 border border-rose-200">
+                      ▼ Bearish (Close &lt; Open)
+                    </span>)}
+                  {Math.abs(practiceClose - 100) <= 1 && (<span className="px-2 py-0.5 rounded text-[11px] font-bold uppercase bg-slate-100 text-slate-700 border border-slate-200">
+                      ▬ Doji (Close ≈ Open)
+                    </span>)}
+                </div>
+              </div>
+
+              <input type="range" role="slider" aria-label="Adjust Close Price slider" aria-valuemin={85} aria-valuemax={125} aria-valuenow={practiceClose} aria-valuetext={formatCurrency(practiceClose, currencyCode, locale)} min={85} max={125} step={1} value={practiceClose} onChange={(e) => setPracticeClose(Number(e.target.value))} className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-600"/>
+
+              <div className="flex items-center justify-between text-[11px] font-mono text-slate-500 pt-1">
+                <span>Low: {formatCurrency(85, currencyCode, locale)}</span>
+                <span>Open: {formatCurrency(100, currencyCode, locale)}</span>
+                <span>High: {formatCurrency(125, currencyCode, locale)}</span>
+              </div>
+
+              {/* Dynamic Pedagogical Explanation */}
+              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-700 space-y-1">
+                {practiceClose > 101 && (<p>
+                    <strong className="text-emerald-700">Bullish Interval: </strong>
+                    Because Close ({formatCurrency(practiceClose, currencyCode, locale)}) ended above Open ({formatCurrency(100, currencyCode, locale)}), the real body is green. Price ended higher than where it started.
+                  </p>)}
+                {practiceClose < 99 && (<p>
+                    <strong className="text-rose-700">Bearish Interval: </strong>
+                    Because Close ({formatCurrency(practiceClose, currencyCode, locale)}) ended below Open ({formatCurrency(100, currencyCode, locale)}), the real body is red. Price ended lower than where it started.
+                  </p>)}
+                {Math.abs(practiceClose - 100) <= 1 && (<p>
+                    <strong className="text-slate-800">Very Small Body (Doji): </strong>
+                    Close is virtually identical to Open. The real body collapses to a thin line because net price change over the period was near zero.
+                  </p>)}
               </div>
             </div>
-
-            <input type="range" role="slider" aria-label="Adjust Close Price slider" aria-valuemin={85} aria-valuemax={125} aria-valuenow={practiceClose} aria-valuetext={formatCurrency(practiceClose, currencyCode, locale)} min={85} max={125} step={1} value={practiceClose} onChange={(e) => setPracticeClose(Number(e.target.value))} className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-600"/>
-
-            <div className="flex items-center justify-between text-[11px] font-mono text-slate-500 pt-1">
-              <span>Low: {formatCurrency(85, currencyCode, locale)}</span>
-              <span>Open: {formatCurrency(100, currencyCode, locale)}</span>
-              <span>High: {formatCurrency(125, currencyCode, locale)}</span>
-            </div>
-
-            {/* Dynamic Pedagogical Explanation */}
-            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-700 space-y-1">
-              {practiceClose > 101 && (<p>
-                  <strong className="text-emerald-700">Bullish Interval: </strong>
-                  Because Close ({formatCurrency(practiceClose, currencyCode, locale)}) ended above Open ({formatCurrency(100, currencyCode, locale)}), the real body is green. Price ended higher than where it started.
-                </p>)}
-              {practiceClose < 99 && (<p>
-                  <strong className="text-rose-700">Bearish Interval: </strong>
-                  Because Close ({formatCurrency(practiceClose, currencyCode, locale)}) ended below Open ({formatCurrency(100, currencyCode, locale)}), the real body is red. Price ended lower than where it started.
-                </p>)}
-              {Math.abs(practiceClose - 100) <= 1 && (<p>
-                  <strong className="text-slate-800">Very Small Body (Doji): </strong>
-                  Close is virtually identical to Open. The real body collapses to a thin line because net price change over the period was near zero.
-                </p>)}
-            </div>
-          </div>)}
+          );
+        })()}
 
         {/* Response Area: Choice Cards with Hotkey Safeguards */}
         {isQuestionStep && options && options.length > 0 && (<div className="space-y-3 pt-1">
             <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-slate-500">
-              <span>Select your answer:</span>
+              <span>{isMultiSelect ? 'Select all correct answers:' : 'Select your answer:'}</span>
               <span className="text-[11px] font-normal text-slate-400 hidden sm:inline">
-                Press 1–4 to choose
+                Press 1–{options.length} to {isMultiSelect ? 'toggle' : 'choose'}
               </span>
             </div>
 
             <div className={hasImageOptions ? "grid grid-cols-1 sm:grid-cols-2 gap-3" : "grid grid-cols-1 gap-2.5"}>
               {options.map((opt, optIdx) => {
-                const isSelected = selectedOption === opt.id;
+                const isSelected = isMultiSelect
+                  ? selectedOptions.includes(opt.id)
+                  : selectedOption === opt.id;
                 const hasImage = Boolean(opt.media_asset_id || opt.image_url || opt.url);
                 return (<button
                     key={opt.id}
                     type="button"
                     disabled={remediation.status === 'CORRECT'}
-                    onClick={() => setSelectedOption(opt.id)}
+                    onClick={() => {
+                      if (isMultiSelect) {
+                        setSelectedOptions(prev => prev.includes(opt.id) ? prev.filter(x => x !== opt.id) : [...prev, opt.id]);
+                      } else {
+                        setSelectedOption(opt.id);
+                      }
+                    }}
                     className={`group p-3.5 rounded-xl border text-left text-sm font-semibold transition-all flex ${
                       hasImage ? 'flex-col gap-2.5' : 'flex-col sm:flex-row sm:items-center justify-between gap-2'
                     } cursor-pointer ${
@@ -836,7 +870,7 @@ export const SessionPlayerPage = () => {
                         <span className="truncate">{opt.text || opt.label}</span>
                       </div>
 
-                      <div className={`w-5 h-5 rounded-full border flex items-center justify-center transition-all shrink-0 ml-2 ${isSelected
+                      <div className={`w-5 h-5 ${isMultiSelect ? 'rounded-md' : 'rounded-full'} border flex items-center justify-center transition-all shrink-0 ml-2 ${isSelected
                           ? 'border-blue-600 bg-blue-600 text-white'
                           : 'border-slate-300 group-hover:border-slate-400'}`}>
                         {isSelected && <Check className="w-3 h-3 stroke-[3]"/>}
@@ -920,24 +954,73 @@ export const SessionPlayerPage = () => {
           </div>
 
           {/* Primary Action Button (Right Side) */}
-          <div className="w-full sm:w-auto shrink-0 flex items-center justify-end">
-            {isQuestionStep ? (remediation.status === 'CORRECT' ? (<button type="button" onClick={() => handleStepTransition(currentIdx + 1)} className="w-full sm:w-auto px-7 py-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs uppercase tracking-wider shadow-sm active:translate-y-0.5 transition-all flex items-center justify-center gap-2 cursor-pointer">
+          <div className="w-full sm:w-auto shrink-0 flex items-center justify-end gap-3">
+            {currentIdx > 0 && (
+              <button
+                type="button"
+                onClick={() => handleStepTransition(currentIdx - 1)}
+                className="w-full sm:w-auto px-5 py-3 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 font-bold text-xs uppercase tracking-wider shadow-sm active:translate-y-0.5 transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <ArrowLeft className="w-4 h-4 stroke-[2.5]" />
+                <span>Previous</span>
+              </button>
+            )}
+
+            {isQuestionStep ? (
+              remediation.status === 'CORRECT' ? (
+                <button
+                  type="button"
+                  onClick={() => handleStepTransition(currentIdx + 1)}
+                  className="w-full sm:w-auto px-7 py-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs uppercase tracking-wider shadow-sm active:translate-y-0.5 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                >
                   <span>{currentIdx + 1 === items.length ? 'Complete Lesson' : 'Continue to Next Step'}</span>
-                  <ArrowRight className="w-4 h-4 stroke-[2.5]"/>
-                </button>) : remediation.status === 'MISCONCEPTION' ? (<button type="button" onClick={handleRetry} className="w-full sm:w-auto px-7 py-3 rounded-xl bg-amber-700 hover:bg-amber-800 text-white font-bold text-xs uppercase tracking-wider shadow-sm active:translate-y-0.5 transition-all flex items-center justify-center gap-2 cursor-pointer">
-                  <RefreshCw className="w-4 h-4"/>
+                  <ArrowRight className="w-4 h-4 stroke-[2.5]" />
+                </button>
+              ) : remediation.status === 'MISCONCEPTION' ? (
+                <button
+                  type="button"
+                  onClick={handleRetry}
+                  className="w-full sm:w-auto px-7 py-3 rounded-xl bg-amber-700 hover:bg-amber-800 text-white font-bold text-xs uppercase tracking-wider shadow-sm active:translate-y-0.5 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <RefreshCw className="w-4 h-4" />
                   <span>Try Again</span>
-                </button>) : (<button type="button" disabled={!selectedOption || isSubmitting} onClick={handleCheckAnswer} className={`w-full sm:w-auto px-7 py-3 rounded-xl font-bold text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${selectedOption && !isSubmitting
-                ? 'bg-slate-900 hover:bg-slate-800 text-white shadow-sm cursor-pointer'
-                : 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'}`}>
-                  {isSubmitting ? (<>
-                      <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"/>
-                      <span>Checking...</span>
-                    </>) : (<span>Check Answer</span>)}
-                </button>)) : (<button type="button" onClick={() => handleStepTransition(currentIdx + 1)} className="w-full sm:w-auto px-7 py-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs uppercase tracking-wider shadow-sm active:translate-y-0.5 transition-all flex items-center justify-center gap-2 cursor-pointer">
+                </button>
+              ) : (
+                (() => {
+                  const hasSelection = isMultiSelect ? selectedOptions.length > 0 : Boolean(selectedOption);
+                  return (
+                    <button
+                      type="button"
+                      disabled={!hasSelection || isSubmitting}
+                      onClick={handleCheckAnswer}
+                      className={`w-full sm:w-auto px-7 py-3 rounded-xl font-bold text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${
+                        hasSelection && !isSubmitting
+                          ? 'bg-slate-900 hover:bg-slate-800 text-white shadow-sm cursor-pointer'
+                          : 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'
+                      }`}
+                    >
+                      {isSubmitting ? (
+                        <>
+                          <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          <span>Checking...</span>
+                        </>
+                      ) : (
+                        <span>Check Answer</span>
+                      )}
+                    </button>
+                  );
+                })()
+              )
+            ) : (
+              <button
+                type="button"
+                onClick={() => handleStepTransition(currentIdx + 1)}
+                className="w-full sm:w-auto px-7 py-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs uppercase tracking-wider shadow-sm active:translate-y-0.5 transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
                 <span>{currentIdx + 1 === items.length ? 'Complete Lesson' : 'Continue to Next Step'}</span>
-                <ArrowRight className="w-4 h-4 stroke-[2.5]"/>
-              </button>)}
+                <ArrowRight className="w-4 h-4 stroke-[2.5]" />
+              </button>
+            )}
           </div>
         </div>
       </footer>

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { CandlestickVisualizer, formatCurrency } from '../../../../components/charts/CandlestickVisualizer';
-import { getCachedMediaUrl } from '../../../admin/utils/mediaResolver';
+import { getCachedMediaUrl, useMediaAsset } from '../../../admin/utils/mediaResolver';
+import { resolveEndpointUrl } from '../../../../services/apiClient';
 import {
   Calculator,
   FileSpreadsheet,
@@ -50,10 +51,20 @@ export const HeadingRenderer = ({ payload }) => {
  * 2. Image Renderer
  */
 export const ImageRenderer = ({ payload }) => {
-  const resolvedFromId = payload?.media_asset_id ? getCachedMediaUrl(payload.media_asset_id) : null;
-  const imageUrl = resolvedFromId || payload?.url || payload?.image_url || payload?.src;
-  const caption = payload?.caption;
-  const alt = payload?.alt || caption || 'Educational financial illustration';
+  const mediaId = payload?.media_asset_id || payload?.content?.media_asset_id;
+  const { url: hookUrl, isLoading } = useMediaAsset(mediaId);
+  const rawUrl = payload?.image_url || payload?.url || payload?.src || payload?.content?.image_url || payload?.content?.url || hookUrl;
+  const imageUrl = rawUrl ? resolveEndpointUrl(rawUrl) : null;
+  const caption = payload?.caption || payload?.content?.caption;
+  const alt = payload?.alt || payload?.alt_text || caption || 'Educational financial illustration';
+
+  if (isLoading && !imageUrl) {
+    return (
+      <div className="w-full h-48 bg-slate-100 rounded-2xl flex items-center justify-center animate-pulse text-slate-400 text-xs">
+        Loading illustration...
+      </div>
+    );
+  }
 
   if (!imageUrl) {
     return (
@@ -70,7 +81,7 @@ export const ImageRenderer = ({ payload }) => {
         <img
           src={imageUrl}
           alt={alt}
-          className="max-h-72 w-auto mx-auto object-contain rounded-xl transition-transform hover:scale-[1.01]"
+          className="max-h-80 w-auto mx-auto object-contain rounded-xl transition-transform hover:scale-[1.01]"
           loading="lazy"
         />
       </div>
@@ -167,18 +178,28 @@ export const AnalogyRenderer = ({ payload }) => {
  * 5. Scenario Renderer
  */
 export const ScenarioRenderer = ({ payload }) => {
-  const context = payload?.context || 'You are observing liquidity behavior during an active trading session.';
-  const dilemma = payload?.dilemma || 'How do you position risk given the sudden order book shift?';
+  const mediaId = payload?.media_asset_id || payload?.content?.media_asset_id;
+  const { url: hookUrl } = useMediaAsset(mediaId);
+  const rawUrl = payload?.image_url || payload?.url || payload?.src || hookUrl;
+  const imageUrl = rawUrl ? resolveEndpointUrl(rawUrl) : null;
+
+  const context = payload?.context || payload?.content?.context;
+  const dilemma = payload?.dilemma || payload?.content?.dilemma || (!context ? (payload?.prompt || payload?.content?.prompt) : null);
 
   return (
     <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-3">
-      <div className="flex items-center gap-2 text-xs font-bold text-rose-700 uppercase tracking-wider">
-        <ArrowRight className="w-4 h-4 text-rose-600" />
-        Market Scenario Simulation
+      <div className="flex items-center gap-2 text-xs font-bold text-blue-700 uppercase tracking-wider">
+        <ArrowRight className="w-4 h-4 text-blue-600" />
+        Scenario & Question
       </div>
-      <p className="text-xs sm:text-sm text-slate-700 leading-relaxed">{context}</p>
+      {imageUrl && (
+        <div className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50 p-2 max-h-72 flex items-center justify-center">
+          <img src={imageUrl} alt={payload?.alt || 'Scenario visual'} className="max-h-64 object-contain rounded-lg" />
+        </div>
+      )}
+      {context && <p className="text-xs sm:text-sm text-slate-700 leading-relaxed font-medium whitespace-pre-line">{context}</p>}
       {dilemma && (
-        <div className="p-3 rounded-xl bg-rose-50 border border-rose-100 text-xs font-semibold text-rose-900">
+        <div className="p-3 rounded-xl bg-blue-50/70 border border-blue-100 text-xs font-semibold text-blue-950">
           {dilemma}
         </div>
       )}

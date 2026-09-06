@@ -7,6 +7,7 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.models.learning import LearningSession, LearningSessionItem
+from app.models.media import MediaAsset
 from app.schemas.content_authoring import StoredBlock, ResponseType, LearnerBlockSerializer
 from app.services.learning.next_action_engine import NextActionEngine
 from app.services.learning.session_generator import SessionGeneratorService
@@ -124,18 +125,95 @@ async def get_session(
         items_payload = []
         sorted_blocks = sorted(version.blocks_json, key=lambda b: b.get("order_index", 0))
 
+        # Collect all referenced media_asset_ids for batch resolution
+        media_ids = set()
+        for b in sorted_blocks:
+            if b.get("media_asset_id"):
+                media_ids.add(str(b["media_asset_id"]))
+            if (b.get("content") or {}).get("media_asset_id"):
+                media_ids.add(str(b["content"]["media_asset_id"]))
+            for opt in b.get("options") or []:
+                if isinstance(opt, dict) and opt.get("media_asset_id"):
+                    media_ids.add(str(opt["media_asset_id"]))
+
+        media_url_map = {}
+        if media_ids:
+            parsed_uuids = []
+            for mid in media_ids:
+                try:
+                    parsed_uuids.append(uuid.UUID(str(mid)))
+                except Exception:
+                    pass
+            if parsed_uuids:
+                m_stmt = select(MediaAsset).where(MediaAsset.id.in_(parsed_uuids))
+                m_res = await db.execute(m_stmt)
+                for m in m_res.scalars().all():
+                    media_url_map[str(m.id)] = m.url
+
         for idx, raw_block in enumerate(sorted_blocks):
             b_id = str(raw_block.get("id"))
             resp_type = raw_block.get("response_type")
             is_interactive = bool(resp_type and resp_type not in ("NONE", ResponseType.NONE))
             stored_block = StoredBlock(**raw_block)
             sanitized_payload = LearnerBlockSerializer.serialize(stored_block)
+
+            # Extract answer keys & feedback
+            b_eval = raw_block.get("evaluation") or {}
+            b_correct_id = sanitized_payload.get("correct_option_id") or b_eval.get("correct_option_id")
+            b_correct_ids = sanitized_payload.get("correct_option_ids") or b_eval.get("correct_option_ids")
+            if not b_correct_id and raw_block.get("options"):
+                for opt in raw_block["options"]:
+                    if isinstance(opt, dict) and opt.get("is_correct"):
+                        b_correct_id = str(opt.get("id"))
+                        break
+            if not b_correct_ids and raw_block.get("options"):
+                found_cids = [str(opt.get("id")) for opt in raw_block["options"] if isinstance(opt, dict) and opt.get("is_correct")]
+                if found_cids:
+                    b_correct_ids = found_cids
+
+            if b_correct_id:
+                sanitized_payload["correct_option_id"] = str(b_correct_id)
+            if b_correct_ids:
+                sanitized_payload["correct_option_ids"] = [str(x) for x in b_correct_ids]
+
+            b_expl = (raw_block.get("feedback") or {}).get("explanation") or b_eval.get("explanation") or raw_block.get("explanation")
+            if b_expl:
+                sanitized_payload["explanation"] = b_expl
+
+            # Resolve image URLs onto payload and options
+            b_mid = raw_block.get("media_asset_id") or (raw_block.get("content") or {}).get("media_asset_id")
+            if b_mid and str(b_mid) in media_url_map:
+                sanitized_payload["image_url"] = media_url_map[str(b_mid)]
+                sanitized_payload["media_asset_id"] = str(b_mid)
+            elif (raw_block.get("content") or {}).get("url") or (raw_block.get("content") or {}).get("image_url"):
+                sanitized_payload["image_url"] = (raw_block.get("content") or {}).get("url") or (raw_block.get("content") or {}).get("image_url")
+
+            # Resolve option images
+            if "options" in sanitized_payload and isinstance(sanitized_payload["options"], list):
+                for opt in sanitized_payload["options"]:
+                    if isinstance(opt, dict) and opt.get("media_asset_id"):
+                        opt_mid = str(opt["media_asset_id"])
+                        if opt_mid in media_url_map:
+                            opt["image_url"] = media_url_map[opt_mid]
+
+            # Preserve prompt, context, and caption
+            raw_content = raw_block.get("content") or {}
+            if raw_content.get("context"):
+                sanitized_payload["context"] = raw_content["context"]
+            if raw_content.get("caption"):
+                sanitized_payload["caption"] = raw_content["caption"]
+            if raw_content.get("alt_text"):
+                sanitized_payload["alt_text"] = raw_content["alt_text"]
+
             pos = raw_block.get("order_index", idx + 1)
             title = (
-                raw_block.get("content", {}).get("title")
-                or raw_block.get("content", {}).get("prompt")
+                raw_block.get("title")
+                or raw_content.get("title")
+                or raw_content.get("prompt")
+                or raw_content.get("context")
                 or f"Block {pos}"
             )
+            c_type = raw_block.get("content_type") or raw_block.get("renderer") or "TEXT"
 
             if is_interactive:
                 expected_act_id = uuid.uuid5(version.id, b_id)
@@ -144,8 +222,16 @@ async def get_session(
                     "session_item_id": str(item.id) if item else f"item_{b_id}",
                     "activity_id": str(expected_act_id),
                     "activity_type": raw_block.get("activity_type") or "PRACTICE",
+                    "content_type": c_type,
+                    "renderer": c_type,
                     "interaction_type": resp_type,
+                    "response_type": resp_type,
                     "is_interactive": True,
+                    "correct_option_id": str(b_correct_id) if b_correct_id else None,
+                    "correct_option_ids": [str(x) for x in b_correct_ids] if b_correct_ids else None,
+                    "explanation": b_expl,
+                    "media_asset_id": str(b_mid) if b_mid else None,
+                    "image_url": sanitized_payload.get("image_url"),
                     "learning_phase": item.learning_phase if item else (raw_block.get("activity_type") or "PRACTICE"),
                     "title": title,
                     "position": pos,
@@ -159,8 +245,13 @@ async def get_session(
                     "session_item_id": f"content_{b_id}",
                     "activity_id": None,
                     "activity_type": raw_block.get("activity_type") or "EXPERIENCE",
+                    "content_type": c_type,
+                    "renderer": c_type,
                     "interaction_type": "NONE",
+                    "response_type": "NONE",
                     "is_interactive": False,
+                    "media_asset_id": str(b_mid) if b_mid else None,
+                    "image_url": sanitized_payload.get("image_url"),
                     "learning_phase": raw_block.get("activity_type") or "EXPERIENCE",
                     "title": title,
                     "position": pos,
@@ -264,3 +355,24 @@ async def submit_attempt(
         idempotency_key=x_idempotency_key,
         request_fingerprint=fingerprint,
     )
+
+
+@router.get("/media/{asset_id}", summary="Resolve media asset URL publicly for learners")
+async def resolve_media_for_learner(
+    asset_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = select(MediaAsset).where(MediaAsset.id == asset_id)
+    res = await db.execute(stmt)
+    asset = res.scalar_one_or_none()
+    if not asset:
+        raise HTTPException(status_code=404, detail="MEDIA_ASSET_NOT_FOUND")
+    return {
+        "id": str(asset.id),
+        "media_asset_id": str(asset.id),
+        "filename": asset.filename,
+        "url": asset.url,
+        "alt_text": asset.alt_text,
+        "caption": asset.caption,
+    }
+

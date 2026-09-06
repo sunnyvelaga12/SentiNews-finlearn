@@ -75,7 +75,10 @@ class DifficultyLevel(str, Enum):
 class ResponseType(str, Enum):
     NONE = "NONE"
     SINGLE_CHOICE = "SINGLE_CHOICE"
+    MULTIPLE_CHOICE = "MULTIPLE_CHOICE"
     MULTI_CHOICE = "MULTI_CHOICE"
+    IMAGE_SELECTION = "IMAGE_SELECTION"
+    TRUE_FALSE = "TRUE_FALSE"
     SLIDER = "SLIDER"
     NUMERIC = "NUMERIC"
     DRAG_DROP = "DRAG_DROP"
@@ -125,7 +128,11 @@ class SafeActivityCard(BaseModel):
     prompt: Optional[str] = None
     payload: Dict[str, Any] = Field(default_factory=dict)
     provenance: Optional[DataProvenance] = None
-    options: Optional[List[Dict[str, Any]]] = None  # {id, text, media_asset_id, image_url} - NO correct answers or secrets
+    options: Optional[List[Dict[str, Any]]] = None
+    correct_option_id: Optional[str] = None
+    correct_option_ids: Optional[List[str]] = None
+    media_asset_id: Optional[str] = None
+    image_url: Optional[str] = None
 
 
 class LessonExecutionContract(BaseModel):

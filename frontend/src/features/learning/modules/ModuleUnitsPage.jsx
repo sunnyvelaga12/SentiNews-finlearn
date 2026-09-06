@@ -79,7 +79,6 @@ export const ModuleUnitsPage = () => {
                     lessonTitle: lesson.title,
                     moduleSlug: moduleData?.slug || moduleSlug,
                     moduleTitle: moduleData?.title || 'Module Overview',
-                    cards: lesson.cards,
                 },
             });
         }
@@ -91,7 +90,6 @@ export const ModuleUnitsPage = () => {
                     lessonTitle: lesson.title,
                     moduleSlug: moduleData?.slug || moduleSlug,
                     moduleTitle: moduleData?.title || 'Module Overview',
-                    cards: lesson.cards,
                 },
             });
         }

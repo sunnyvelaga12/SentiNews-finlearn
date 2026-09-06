@@ -49,7 +49,7 @@ export async function resolveMediaAsset(mediaAssetId) {
   }
 
   try {
-    const data = await apiClient(`/api/v1/admin/media/${id}`);
+    const data = await apiClient(`/api/v1/learning/media/${id}`).catch(() => apiClient(`/api/v1/admin/media/${id}`));
     if (data) {
       cacheMediaAsset(data);
       return mediaCache.get(id);

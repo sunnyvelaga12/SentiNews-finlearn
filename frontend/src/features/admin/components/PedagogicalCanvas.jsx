@@ -638,6 +638,7 @@ export const PedagogicalCanvas = ({
                           >
                             <option value="NONE">PURE CONTENT (No Evaluation)</option>
                             <option value="SINGLE_CHOICE">SINGLE CHOICE MCQ</option>
+                            <option value="MULTIPLE_CHOICE">MULTIPLE CHOICE (Multi-Select Checkboxes)</option>
                             <option value="IMAGE_SELECTION">IMAGE SELECTION MCQ</option>
                             <option value="TRUE_FALSE">TRUE / FALSE</option>
                           </select>
@@ -825,6 +826,34 @@ export const PedagogicalCanvas = ({
                                 />
                                 <div className="text-[10px] text-slate-400 font-mono truncate">
                                   Canonical Asset ID: {b.media_asset_id}
+                                </div>
+                                <div className="flex items-center gap-2 pt-1">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      openMediaForBlock(idx);
+                                    }}
+                                    className="text-xs font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1 cursor-pointer"
+                                  >
+                                    <ImageIcon className="w-3.5 h-3.5" />
+                                    <span>Change Image</span>
+                                  </button>
+                                  <span className="text-slate-300">|</span>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      onUpdateBlock(idx, {
+                                        ...b,
+                                        media_asset_id: null,
+                                        content: { ...content, media_asset_id: null },
+                                      });
+                                    }}
+                                    className="text-xs font-bold text-rose-600 hover:text-rose-800 cursor-pointer"
+                                  >
+                                    Remove
+                                  </button>
                                 </div>
                               </div>
                             </div>
@@ -1116,45 +1145,130 @@ export const PedagogicalCanvas = ({
                       )}
 
                       {/* ── 8. SCENARIO Content Editor ── */}
+                      {/* ── 8. SCENARIO / Question Content Editor ── */}
                       {cType === 'SCENARIO' && (
-                        <div className="space-y-2 p-3 bg-rose-50/40 rounded-lg border border-rose-100">
+                        <div className="space-y-3 p-3 bg-rose-50/40 rounded-lg border border-rose-100">
                           <span className="text-[10px] font-bold text-rose-900 uppercase tracking-wider block">
-                            Market Dilemma Scenario
+                            Market Dilemma / Challenge Scenario
                           </span>
-                          <textarea
-                            rows={2}
-                            value={content.context || ''}
-                            onChange={(e) =>
-                              onUpdateBlock(idx, {
-                                ...b,
-                                content: { ...content, context: e.target.value },
-                              })
-                            }
-                            placeholder="Describe market situation, asset state, and environment..."
-                            className="w-full text-xs bg-white border border-rose-200 rounded p-1.5 resize-none"
-                          />
-                          <input
-                            type="text"
-                            value={content.dilemma || b.prompt || ''}
-                            onChange={(e) =>
-                              onUpdateBlock(idx, {
-                                ...b,
-                                content: { ...content, dilemma: e.target.value },
-                                prompt: e.target.value,
-                              })
-                            }
-                            placeholder="Key dilemma or question for learner decision..."
-                            className="w-full text-xs p-1.5 bg-white border border-rose-200 rounded"
-                          />
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-bold text-slate-700 uppercase block">
+                              Question / Challenge Prompt:
+                            </label>
+                            <textarea
+                              rows={2}
+                              value={b.prompt ?? content.prompt ?? content.dilemma ?? content.context ?? ''}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                onUpdateBlock(idx, {
+                                  ...b,
+                                  prompt: val,
+                                  title: b.title && !b.title.startsWith('Block ') ? b.title : val,
+                                  content: {
+                                    ...content,
+                                    prompt: val,
+                                    dilemma: val,
+                                  },
+                                });
+                              }}
+                              placeholder="Enter the main question for the learner (e.g. Question: What does OPEN represent?)..."
+                              className="w-full text-xs font-semibold bg-white border border-rose-200 rounded p-2 resize-none focus:border-rose-400 focus:outline-none"
+                            />
+                          </div>
+
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-bold text-slate-500 uppercase block">
+                              Market Scenario / Context Details (Optional):
+                            </label>
+                            <textarea
+                              rows={2}
+                              value={content.context || ''}
+                              onChange={(e) =>
+                                onUpdateBlock(idx, {
+                                  ...b,
+                                  content: { ...content, context: e.target.value },
+                                })
+                              }
+                              placeholder="Describe market situation or price action (e.g. A candle opens at 100/- and later moves to 108/-)..."
+                              className="w-full text-xs bg-white border border-rose-200 rounded p-1.5 resize-none focus:outline-none"
+                            />
+                          </div>
+
+                          {/* Attached Question Illustration / Chart Diagram */}
+                          <div className="pt-2 border-t border-rose-200/60">
+                            <label className="text-[10px] font-bold text-rose-900 uppercase block mb-1">
+                              Question Illustration / Chart Diagram (Optional):
+                            </label>
+                            {b.media_asset_id ? (
+                              <div className="flex items-center gap-3 p-2 bg-white rounded-lg border border-rose-200">
+                                <div className="w-24 h-16 rounded border border-slate-200 bg-slate-50 overflow-hidden shrink-0 flex items-center justify-center">
+                                  <MediaImagePreview
+                                    mediaAssetId={b.media_asset_id}
+                                    alt="Question illustration"
+                                    className="w-full h-full object-contain"
+                                  />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <span className="text-xs font-semibold text-slate-800 block truncate">
+                                    Attached Question Image
+                                  </span>
+                                  <span className="text-[10px] text-slate-400 font-mono block truncate">
+                                    {b.media_asset_id}
+                                  </span>
+                                  <div className="flex items-center gap-2 mt-1">
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        openMediaForBlock(idx);
+                                      }}
+                                      className="text-xs font-bold text-blue-600 hover:text-blue-800 cursor-pointer"
+                                    >
+                                      Replace Image
+                                    </button>
+                                    <span className="text-slate-300">|</span>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        onUpdateBlock(idx, {
+                                          ...b,
+                                          media_asset_id: null,
+                                          content: { ...content, media_asset_id: null },
+                                        });
+                                      }}
+                                      className="text-xs font-bold text-rose-600 hover:text-rose-800 cursor-pointer"
+                                    >
+                                      Remove
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openMediaForBlock(idx);
+                                }}
+                                className="w-full py-2 px-3 border border-dashed border-rose-300 hover:border-rose-400 rounded-lg text-rose-700 hover:text-rose-900 text-xs font-semibold flex items-center justify-center gap-1.5 bg-white transition-colors cursor-pointer"
+                              >
+                                <ImageIcon className="w-4 h-4" />
+                                <span>+ Attach Diagram / Chart Image to this Question</span>
+                              </button>
+                            )}
+                          </div>
                         </div>
                       )}
 
-                      {/* ── Interactive Response Options & Answer Key (MCQ / Single Choice) ── */}
-                      {rType === 'SINGLE_CHOICE' && (
+                      {/* ── Interactive Response Options & Answer Key (MCQ / Single Choice / Multi-Select) ── */}
+                      {(rType === 'SINGLE_CHOICE' || rType === 'MULTIPLE_CHOICE') && (
                         <div className="mt-3 p-3.5 rounded-lg bg-blue-50/50 border border-blue-100 space-y-3">
                           <div className="flex items-center justify-between">
                             <span className="text-[11px] font-bold text-blue-900 uppercase tracking-wider">
-                              Multiple Choice Options & Answer Key
+                              {rType === 'MULTIPLE_CHOICE'
+                                ? 'Multiple Choice Options & Answer Key (Multi-Select Checkboxes)'
+                                : 'Multiple Choice Options & Answer Key (Single Correct Choice)'}
                             </span>
                             <button
                               type="button"
@@ -1180,59 +1294,134 @@ export const PedagogicalCanvas = ({
 
                           <div className="space-y-2">
                             {(b.options || []).map((opt, optIdx) => {
-                              const isCorrect =
-                                b.evaluation?.correct_option_id === opt.id ||
-                                opt.is_correct ||
-                                b.correct_option_id === opt.id;
+                              const isMulti = rType === 'MULTIPLE_CHOICE';
+                              const isCorrect = isMulti
+                                ? Boolean(
+                                    opt.is_correct ||
+                                      (b.evaluation?.correct_option_ids || []).includes(opt.id) ||
+                                      (b.correct_option_ids || []).includes(opt.id)
+                                  )
+                                : Boolean(
+                                    b.evaluation?.correct_option_id === opt.id ||
+                                      opt.is_correct ||
+                                      b.correct_option_id === opt.id
+                                  );
+
                               return (
-                                <div key={opt.id || optIdx} className="flex items-center gap-2">
-                                  <input
-                                    type="radio"
-                                    name={`correct_opt_${b.id || idx}`}
-                                    checked={Boolean(isCorrect)}
-                                    onChange={() => {
-                                      const updatedOpts = (b.options || []).map((o) => ({
-                                        ...o,
-                                        is_correct: o.id === opt.id,
-                                      }));
-                                      onUpdateBlock(idx, {
-                                        ...b,
-                                        options: updatedOpts,
-                                        evaluation: {
-                                          ...(b.evaluation || {}),
-                                          correct_option_id: opt.id,
-                                        },
-                                        correct_option_id: opt.id,
-                                      });
-                                    }}
-                                    className="text-blue-600 focus:ring-blue-500"
-                                    title="Mark as correct answer"
-                                  />
-                                  <input
-                                    type="text"
-                                    value={opt.text || ''}
-                                    onChange={(e) => {
-                                      const updatedOpts = (b.options || []).map((o, i) =>
-                                        i === optIdx ? { ...o, text: e.target.value } : o
-                                      );
-                                      onUpdateBlock(idx, { ...b, options: updatedOpts });
-                                    }}
-                                    placeholder={`Option ${optIdx + 1}`}
-                                    className="flex-1 p-1.5 text-xs bg-white border border-slate-200 rounded focus:border-blue-500 focus:outline-none"
-                                  />
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const updatedOpts = (b.options || []).filter(
-                                        (_, i) => i !== optIdx
-                                      );
-                                      onUpdateBlock(idx, { ...b, options: updatedOpts });
-                                    }}
-                                    className="text-slate-400 hover:text-rose-600 text-xs px-1"
-                                    title="Delete option"
-                                  >
-                                    ✕
-                                  </button>
+                                <div key={opt.id || optIdx} className="flex flex-col gap-1.5 p-2 bg-white rounded-lg border border-slate-200">
+                                  <div className="flex items-center gap-2">
+                                    <input
+                                      type={isMulti ? 'checkbox' : 'radio'}
+                                      name={`correct_opt_${b.id || idx}`}
+                                      checked={Boolean(isCorrect)}
+                                      onChange={() => {
+                                        if (isMulti) {
+                                          const willBeCorrect = !isCorrect;
+                                          const updatedOpts = (b.options || []).map((o, i) =>
+                                            i === optIdx ? { ...o, is_correct: willBeCorrect } : o
+                                          );
+                                          const correctIds = updatedOpts.filter((o) => o.is_correct).map((o) => o.id);
+                                          onUpdateBlock(idx, {
+                                            ...b,
+                                            options: updatedOpts,
+                                            evaluation: {
+                                              ...(b.evaluation || {}),
+                                              correct_option_ids: correctIds,
+                                              correct_option_id: correctIds[0] || null,
+                                            },
+                                            correct_option_ids: correctIds,
+                                            correct_option_id: correctIds[0] || null,
+                                          });
+                                        } else {
+                                          const updatedOpts = (b.options || []).map((o) => ({
+                                            ...o,
+                                            is_correct: o.id === opt.id,
+                                          }));
+                                          onUpdateBlock(idx, {
+                                            ...b,
+                                            options: updatedOpts,
+                                            evaluation: {
+                                              ...(b.evaluation || {}),
+                                              correct_option_id: opt.id,
+                                            },
+                                            correct_option_id: opt.id,
+                                          });
+                                        }
+                                      }}
+                                      className={`text-blue-600 focus:ring-blue-500 shrink-0 ${isMulti ? 'rounded' : ''}`}
+                                      title={isMulti ? 'Toggle as correct answer' : 'Mark as correct answer'}
+                                    />
+                                    <input
+                                      type="text"
+                                      value={opt.text || ''}
+                                      onChange={(e) => {
+                                        const updatedOpts = (b.options || []).map((o, i) =>
+                                          i === optIdx ? { ...o, text: e.target.value } : o
+                                        );
+                                        onUpdateBlock(idx, { ...b, options: updatedOpts });
+                                      }}
+                                      placeholder={`Option ${optIdx + 1}`}
+                                      className="flex-1 p-1.5 text-xs bg-slate-50 border border-slate-200 rounded focus:border-blue-500 focus:bg-white focus:outline-none"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        openMediaForOption(idx, optIdx);
+                                      }}
+                                      className={`p-1.5 rounded border text-xs flex items-center gap-1 cursor-pointer ${
+                                        opt.media_asset_id
+                                          ? 'bg-blue-50 border-blue-200 text-blue-600'
+                                          : 'bg-slate-50 border-slate-200 text-slate-400 hover:text-slate-600'
+                                      }`}
+                                      title="Attach illustration to choice"
+                                    >
+                                      <ImageIcon className="w-3.5 h-3.5" />
+                                      {opt.media_asset_id && <span className="text-[10px] font-bold">Img</span>}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const updatedOpts = (b.options || []).filter(
+                                          (_, i) => i !== optIdx
+                                        );
+                                        onUpdateBlock(idx, { ...b, options: updatedOpts });
+                                      }}
+                                      className="text-slate-400 hover:text-rose-600 text-xs px-1"
+                                      title="Delete option"
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
+
+                                  {/* Attached Option Image Thumbnail */}
+                                  {opt.media_asset_id && (
+                                    <div className="flex items-center gap-2 pl-6 pt-1">
+                                      <div className="w-16 h-10 rounded border border-slate-200 bg-slate-50 overflow-hidden shrink-0 flex items-center justify-center">
+                                        <MediaImagePreview
+                                          mediaAssetId={opt.media_asset_id}
+                                          alt="Choice visual"
+                                          className="w-full h-full object-contain"
+                                        />
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          const nextOptions = [...(b.options || [])];
+                                          const targetOpt = { ...(nextOptions[optIdx] || {}) };
+                                          delete targetOpt.media_asset_id;
+                                          delete targetOpt.image_url;
+                                          delete targetOpt.url;
+                                          nextOptions[optIdx] = targetOpt;
+                                          onUpdateBlock(idx, { ...b, options: nextOptions });
+                                        }}
+                                        className="text-[10px] font-bold text-rose-500 hover:text-rose-700 cursor-pointer"
+                                      >
+                                        Remove Image
+                                      </button>
+                                    </div>
+                                  )}
                                 </div>
                               );
                             })}

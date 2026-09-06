@@ -34,21 +34,31 @@ class ActivityEvaluator:
         response: Dict[str, Any],
         confidence: Optional[int],
     ) -> EvaluationResult:
+        selected_ids = response.get("selected_option_ids") or response.get("selected_options")
         selected = response.get("selected_option_id") or response.get("selected_option")
-        expected = spec.get("correct_option_id") or spec.get("correct_option") or payload.get("correct_option_id") or payload.get("correct_option")
-        if not expected and payload.get("options"):
-            for opt in payload["options"]:
-                if isinstance(opt, dict) and opt.get("is_correct"):
-                    expected = opt.get("id")
-                    break
 
-        is_correct = (selected is not None and expected is not None and str(selected) == str(expected))
+        expected_ids = spec.get("correct_option_ids") or payload.get("correct_option_ids")
+        expected = spec.get("correct_option_id") or spec.get("correct_option") or payload.get("correct_option_id") or payload.get("correct_option")
+        if not expected and not expected_ids and payload.get("options"):
+            found_ids = [opt.get("id") for opt in payload["options"] if isinstance(opt, dict) and opt.get("is_correct")]
+            if found_ids:
+                expected_ids = found_ids
+                expected = found_ids[0]
+
+        # Multi-select evaluation
+        if selected_ids is not None or (expected_ids is not None and len(expected_ids) > 1):
+            s_set = {str(x) for x in (selected_ids if selected_ids is not None else ([selected] if selected else []))}
+            e_set = {str(x) for x in (expected_ids if expected_ids is not None else ([expected] if expected else []))}
+            is_correct = (bool(s_set) and s_set == e_set)
+        else:
+            is_correct = (selected is not None and expected is not None and str(selected) == str(expected))
+
         score = 1.0 if is_correct else 0.0
 
         metadata = {
-            "selected_option": selected,
-            "expected_option": expected,
-            "misconception_tag": spec.get("misconception_map", {}).get(str(selected)) if not is_correct else None
+            "selected_option": selected or selected_ids,
+            "expected_option": expected or expected_ids,
+            "misconception_tag": spec.get("misconception_map", {}).get(str(selected)) if not is_correct and selected else None
         }
 
         return EvaluationResult(

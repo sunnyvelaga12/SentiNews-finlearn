@@ -8,6 +8,7 @@ from app.models.learning import LearningSession, LearningSessionItem, LearningAc
 from app.models.concept import Concept
 from app.models.progress import ConceptMastery
 from app.models.lesson import Lesson, LessonVersion
+from app.models.media import MediaAsset
 from app.schemas.content_authoring import StoredBlock, ResponseType, LearnerBlockSerializer
 from app.services.content.content_projection_service import ContentProjectionService
 
@@ -130,6 +131,32 @@ class SessionGeneratorService:
 
             # 2b. Assemble Option B Unified Stream sorted by order_index
             sorted_blocks = sorted(version.blocks_json, key=lambda b: b.get("order_index", 0))
+
+            # Batch resolve media asset URLs
+            media_ids = set()
+            for b in sorted_blocks:
+                if b.get("media_asset_id"):
+                    media_ids.add(str(b["media_asset_id"]))
+                if (b.get("content") or {}).get("media_asset_id"):
+                    media_ids.add(str(b["content"]["media_asset_id"]))
+                for opt in b.get("options") or []:
+                    if isinstance(opt, dict) and opt.get("media_asset_id"):
+                        media_ids.add(str(opt["media_asset_id"]))
+
+            media_url_map = {}
+            if media_ids:
+                parsed_uuids = []
+                for mid in media_ids:
+                    try:
+                        parsed_uuids.append(uuid.UUID(str(mid)))
+                    except Exception:
+                        pass
+                if parsed_uuids:
+                    m_stmt = select(MediaAsset).where(MediaAsset.id.in_(parsed_uuids))
+                    m_res = await db.execute(m_stmt)
+                    for m in m_res.scalars().all():
+                        media_url_map[str(m.id)] = m.url
+
             for idx, raw_block in enumerate(sorted_blocks):
                 b_id = str(raw_block.get("id"))
                 resp_type = raw_block.get("response_type")
@@ -137,25 +164,60 @@ class SessionGeneratorService:
                 stored_block = StoredBlock(**raw_block)
                 sanitized_payload = LearnerBlockSerializer.serialize(stored_block)
 
-                # Extract correct_option_id for interactive practice blocks
+                # Extract correct_option_id and correct_option_ids for interactive practice blocks
                 block_eval = raw_block.get("evaluation") or {}
-                b_correct_id = block_eval.get("correct_option_id") or raw_block.get("correct_option_id")
+                b_correct_id = sanitized_payload.get("correct_option_id") or block_eval.get("correct_option_id")
+                b_correct_ids = sanitized_payload.get("correct_option_ids") or block_eval.get("correct_option_ids")
                 if not b_correct_id and raw_block.get("options"):
                     for opt in raw_block["options"]:
                         if isinstance(opt, dict) and opt.get("is_correct"):
-                            b_correct_id = opt.get("id")
+                            b_correct_id = str(opt.get("id"))
                             break
+                if not b_correct_ids and raw_block.get("options"):
+                    found_cids = [str(opt.get("id")) for opt in raw_block["options"] if isinstance(opt, dict) and opt.get("is_correct")]
+                    if found_cids:
+                        b_correct_ids = found_cids
+
                 if b_correct_id:
-                    sanitized_payload["correct_option_id"] = b_correct_id
-                b_expl = (raw_block.get("feedback") or {}).get("explanation") or raw_block.get("explanation")
+                    sanitized_payload["correct_option_id"] = str(b_correct_id)
+                if b_correct_ids:
+                    sanitized_payload["correct_option_ids"] = [str(x) for x in b_correct_ids]
+
+                b_expl = (raw_block.get("feedback") or {}).get("explanation") or block_eval.get("explanation") or raw_block.get("explanation")
                 if b_expl:
                     sanitized_payload["explanation"] = b_expl
+
+                # Resolve image URLs onto payload and options
+                b_mid = raw_block.get("media_asset_id") or (raw_block.get("content") or {}).get("media_asset_id")
+                if b_mid and str(b_mid) in media_url_map:
+                    sanitized_payload["image_url"] = media_url_map[str(b_mid)]
+                    sanitized_payload["media_asset_id"] = str(b_mid)
+                elif (raw_block.get("content") or {}).get("url") or (raw_block.get("content") or {}).get("image_url"):
+                    sanitized_payload["image_url"] = (raw_block.get("content") or {}).get("url") or (raw_block.get("content") or {}).get("image_url")
+
+                # Resolve option images
+                if "options" in sanitized_payload and isinstance(sanitized_payload["options"], list):
+                    for opt in sanitized_payload["options"]:
+                        if isinstance(opt, dict) and opt.get("media_asset_id"):
+                            opt_mid = str(opt["media_asset_id"])
+                            if opt_mid in media_url_map:
+                                opt["image_url"] = media_url_map[opt_mid]
+
+                # Preserve prompt, context, caption, and alt text
+                raw_content = raw_block.get("content") or {}
+                if raw_content.get("context"):
+                    sanitized_payload["context"] = raw_content["context"]
+                if raw_content.get("caption"):
+                    sanitized_payload["caption"] = raw_content["caption"]
+                if raw_content.get("alt_text"):
+                    sanitized_payload["alt_text"] = raw_content["alt_text"]
 
                 pos = raw_block.get("order_index", idx + 1)
                 title = (
                     raw_block.get("title")
-                    or raw_block.get("content", {}).get("title")
-                    or raw_block.get("content", {}).get("prompt")
+                    or raw_content.get("title")
+                    or raw_content.get("prompt")
+                    or raw_content.get("context")
                     or f"Block {pos}"
                 )
 
@@ -169,8 +231,13 @@ class SessionGeneratorService:
                         "content_type": c_type,
                         "renderer": c_type,
                         "interaction_type": resp_type,
+                        "response_type": resp_type,
                         "is_interactive": True,
-                        "correct_option_id": b_correct_id,
+                        "correct_option_id": str(b_correct_id) if b_correct_id else None,
+                        "correct_option_ids": [str(x) for x in b_correct_ids] if b_correct_ids else None,
+                        "explanation": b_expl,
+                        "media_asset_id": str(b_mid) if b_mid else None,
+                        "image_url": sanitized_payload.get("image_url"),
                         "learning_phase": item.learning_phase if item else (raw_block.get("activity_type") or "PRACTICE"),
                         "title": title,
                         "position": pos,
@@ -187,7 +254,10 @@ class SessionGeneratorService:
                         "content_type": c_type,
                         "renderer": c_type,
                         "interaction_type": "NONE",
+                        "response_type": "NONE",
                         "is_interactive": False,
+                        "media_asset_id": str(b_mid) if b_mid else None,
+                        "image_url": sanitized_payload.get("image_url"),
                         "learning_phase": raw_block.get("activity_type") or "EXPERIENCE",
                         "title": title,
                         "position": pos,

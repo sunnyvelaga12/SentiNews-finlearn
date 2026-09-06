@@ -113,6 +113,7 @@ class ContentType(str, Enum):
 class ResponseType(str, Enum):
     NONE = "NONE"
     SINGLE_CHOICE = "SINGLE_CHOICE"
+    MULTIPLE_CHOICE = "MULTIPLE_CHOICE"
     IMAGE_SELECTION = "IMAGE_SELECTION"
     TRUE_FALSE = "TRUE_FALSE"
 
@@ -167,8 +168,13 @@ class StoredBlock(BaseModel):
     difficulty: int = Field(default=1, ge=1, le=5, description="Bounded difficulty 1: BEGINNER to 5: EXPERT")
     provenance: Optional[Dict[str, Any]] = None
     media_asset_id: Optional[uuid.UUID] = None
+    image_url: Optional[str] = None
     concept_id: Optional[str] = None
     objective_id: Optional[str] = None
+    title: Optional[str] = None
+    prompt: Optional[str] = None
+    correct_option_id: Optional[str] = None
+    correct_option_ids: Optional[List[str]] = None
 
     @model_validator(mode="after")
     def validate_discriminators(self):
@@ -190,6 +196,26 @@ class StoredBlock(BaseModel):
                 raise ValueError("SINGLE_CHOICE requires evaluation.correct_option_id.")
             if str(self.evaluation.get("correct_option_id")) not in option_ids:
                 raise ValueError("evaluation.correct_option_id must match a valid option ID.")
+
+        # 2b. MULTIPLE_CHOICE: options >= 2, at least 1 correct option
+        elif self.response_type == ResponseType.MULTIPLE_CHOICE:
+            if not self.options or len(self.options) < 2:
+                raise ValueError("MULTIPLE_CHOICE requires at least 2 options.")
+            option_ids = {str(opt.get("id")) for opt in self.options if opt.get("id")}
+            if len(option_ids) != len(self.options):
+                raise ValueError("All options must have unique IDs.")
+            correct_ids = []
+            if self.evaluation and self.evaluation.get("correct_option_ids"):
+                correct_ids = [str(x) for x in self.evaluation["correct_option_ids"]]
+            elif self.evaluation and self.evaluation.get("correct_option_id"):
+                correct_ids = [str(self.evaluation["correct_option_id"])]
+            else:
+                correct_ids = [str(opt.get("id")) for opt in self.options if isinstance(opt, dict) and opt.get("is_correct")]
+            if not correct_ids:
+                raise ValueError("MULTIPLE_CHOICE requires at least one correct option.")
+            for cid in correct_ids:
+                if cid not in option_ids:
+                    raise ValueError(f"Correct option ID {cid} must match a valid option ID.")
 
         # 3. IMAGE_SELECTION: options >= 2, every option requires media_asset_id, exactly 1 correct_option_id
         elif self.response_type == ResponseType.IMAGE_SELECTION:
@@ -249,6 +275,11 @@ class LearnerBlock(BaseModel):
     evidence_role: EvidenceRole = EvidenceRole.NONE
     difficulty: int = 1
     media_asset_id: Optional[uuid.UUID] = None
+    image_url: Optional[str] = None
+    title: Optional[str] = None
+    prompt: Optional[str] = None
+    correct_option_id: Optional[str] = None
+    correct_option_ids: Optional[List[str]] = None
     is_interactive: bool = False
 
 
@@ -262,7 +293,7 @@ class LearnerBlockSerializer:
     def serialize(block: Union[StoredBlock, Dict[str, Any]]) -> Dict[str, Any]:
         data = block.model_dump() if hasattr(block, "model_dump") else dict(block)
         
-        # 1. Resolve canonical correct_option_id before scrubbing
+        # 1. Resolve canonical correct_option_id and correct_option_ids before scrubbing
         eval_dict = data.get("evaluation") or {}
         options_list = data.get("options") or []
         correct_id = (
@@ -270,6 +301,11 @@ class LearnerBlockSerializer:
             or eval_dict.get("correct_option_id")
             or next((o.get("id") for o in options_list if isinstance(o, dict) and o.get("is_correct")), None)
         )
+        raw_correct_ids = eval_dict.get("correct_option_ids") or [
+            str(o.get("id")) for o in options_list if isinstance(o, dict) and o.get("is_correct")
+        ]
+        if not raw_correct_ids and correct_id:
+            raw_correct_ids = [str(correct_id)]
 
         data.pop("evaluation", None)
         data.pop("correct_value", None)
@@ -285,12 +321,18 @@ class LearnerBlockSerializer:
                 clean_options.append(opt_dict)
             data["options"] = clean_options
 
-        # 3. Supply resolved correct_option_id for instant client verification
+        # 3. Supply resolved correct_option_id / correct_option_ids for instant client verification
         if correct_id is not None:
             data["correct_option_id"] = str(correct_id)
+        if raw_correct_ids:
+            data["correct_option_ids"] = [str(x) for x in raw_correct_ids]
 
         # 4. Mark interactivity flag
         data["is_interactive"] = data.get("response_type") not in (ResponseType.NONE, "NONE", None)
+        if not data.get("prompt") and (data.get("content") or {}).get("prompt"):
+            data["prompt"] = data["content"]["prompt"]
+        if not data.get("title") and (data.get("content") or {}).get("title"):
+            data["title"] = data["content"]["title"]
         return data
 
     @staticmethod

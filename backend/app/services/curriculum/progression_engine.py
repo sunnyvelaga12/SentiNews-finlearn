@@ -227,6 +227,34 @@ class ProgressionEngine:
                     resp_str = resp_raw.upper() if isinstance(resp_raw, str) else "NONE"
                     resp_type = ResponseType[resp_str] if resp_str in ResponseType.__members__ else ResponseType.NONE
 
+                    b_eval = b.get("evaluation") or {}
+                    b_correct_id = b_eval.get("correct_option_id") or b.get("correct_option_id")
+                    b_correct_ids = b_eval.get("correct_option_ids") or b.get("correct_option_ids")
+                    if not b_correct_id and raw_options:
+                        b_correct_id = next((str(o.get("id")) for o in raw_options if isinstance(o, dict) and o.get("is_correct")), None)
+                    if not b_correct_ids and raw_options:
+                        found_ids = [str(o.get("id")) for o in raw_options if isinstance(o, dict) and o.get("is_correct")]
+                        if found_ids:
+                            b_correct_ids = found_ids
+
+                    b_media_id = b.get("media_asset_id") or (b.get("content") or {}).get("media_asset_id")
+                    b_prompt = (
+                        b.get("prompt")
+                        or (b.get("content") or {}).get("prompt")
+                        or (b.get("content") or {}).get("context")
+                        or b.get("question")
+                    )
+                    b_payload = dict(b.get("payload") or b.get("content") or {})
+                    if b_correct_id:
+                        b_payload["correct_option_id"] = str(b_correct_id)
+                    if b_correct_ids:
+                        b_payload["correct_option_ids"] = [str(x) for x in b_correct_ids]
+                    if b_media_id:
+                        b_payload["media_asset_id"] = str(b_media_id)
+                    b_expl = (b.get("feedback") or {}).get("explanation") or b_eval.get("explanation") or b.get("explanation")
+                    if b_expl:
+                        b_payload["explanation"] = b_expl
+
                     safe_cards.append(
                         SafeActivityCard(
                             id=b.get("id", str(uuid.uuid4())),
@@ -238,10 +266,13 @@ class ProgressionEngine:
                             response_type=resp_type,
                             capability_ids=b.get("capability_ids") or [],
                             title=b.get("title", version.title),
-                            prompt=b.get("prompt") or b.get("question"),
-                            payload=b.get("payload") or b.get("content") or {},
+                            prompt=b_prompt,
+                            payload=b_payload,
                             provenance=safe_prov,
                             options=sanitized_options,
+                            correct_option_id=str(b_correct_id) if b_correct_id else None,
+                            correct_option_ids=[str(x) for x in b_correct_ids] if b_correct_ids else None,
+                            media_asset_id=str(b_media_id) if b_media_id else None,
                         )
                     )
 
