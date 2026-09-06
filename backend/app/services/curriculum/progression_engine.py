@@ -168,11 +168,13 @@ class ProgressionEngine:
                 # Build sanitized SafeActivityCard list (NO answer keys!)
                 safe_cards: List[SafeActivityCard] = []
                 for b in version.blocks_json or []:
-                    b_type = (b.get("type") or "OBSERVE").upper()
+                    b_type_raw = b.get("activity_type") or b.get("type") or "OBSERVE"
+                    b_type = b_type_raw.upper() if isinstance(b_type_raw, str) else "OBSERVE"
                     if b_type not in InteractionType.__members__:
                         b_type = "OBSERVE"
 
-                    renderer = (b.get("content_type") or b.get("renderer") or "TEXT").upper()
+                    renderer_raw = b.get("content_type") or b.get("renderer") or "TEXT"
+                    renderer = renderer_raw.upper() if isinstance(renderer_raw, str) else "TEXT"
                     if renderer not in RendererType.__members__:
                         renderer = "TEXT"
 
@@ -202,17 +204,27 @@ class ProgressionEngine:
                         else None
                     )
 
-                    b_role = (b.get("evidence_role") or "NONE").upper()
+                    b_role_raw = b.get("evidence_role")
+                    b_role = b_role_raw.upper() if isinstance(b_role_raw, str) else "NONE"
                     if b_role not in EvidenceRole.__members__:
                         b_role = "NONE"
 
-                    cog_str = (b.get("cognitive_level") or "RECOGNIZE").upper()
+                    cog_raw = b.get("cognitive_level")
+                    cog_str = cog_raw.upper() if isinstance(cog_raw, str) else "RECOGNIZE"
                     cog_level = CognitiveLevel[cog_str] if cog_str in CognitiveLevel.__members__ else None
 
-                    diff_str = (b.get("difficulty") or "BEGINNER").upper()
+                    raw_diff = b.get("difficulty")
+                    if isinstance(raw_diff, str):
+                        diff_str = raw_diff.upper()
+                    elif isinstance(raw_diff, int):
+                        diff_map = {1: "BEGINNER", 2: "INTERMEDIATE", 3: "ADVANCED"}
+                        diff_str = diff_map.get(raw_diff, "BEGINNER")
+                    else:
+                        diff_str = "BEGINNER"
                     diff_level = DifficultyLevel[diff_str] if diff_str in DifficultyLevel.__members__ else DifficultyLevel.BEGINNER
 
-                    resp_str = (b.get("response_type") or "NONE").upper()
+                    resp_raw = b.get("response_type")
+                    resp_str = resp_raw.upper() if isinstance(resp_raw, str) else "NONE"
                     resp_type = ResponseType[resp_str] if resp_str in ResponseType.__members__ else ResponseType.NONE
 
                     safe_cards.append(
