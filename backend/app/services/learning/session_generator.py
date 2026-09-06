@@ -153,7 +153,8 @@ class SessionGeneratorService:
 
                 pos = raw_block.get("order_index", idx + 1)
                 title = (
-                    raw_block.get("content", {}).get("title")
+                    raw_block.get("title")
+                    or raw_block.get("content", {}).get("title")
                     or raw_block.get("content", {}).get("prompt")
                     or f"Block {pos}"
                 )

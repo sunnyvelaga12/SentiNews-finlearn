@@ -175,6 +175,13 @@ export const AdminStudioPage = () => {
                         if (l) {
                             setSelectedModule(item.module);
                             setSelectedUnit(item.unit);
+                            // If this lesson is ALREADY selected and loaded, do NOT reload it or clobber in-memory draft!
+                            if (selectedLessonRef.current?.id === l.id) {
+                                const merged = { ...selectedLessonRef.current, ...l };
+                                setSelectedLesson(merged);
+                                selectedLessonRef.current = merged;
+                                return;
+                            }
                             setSelectedLesson(l);
                             persistActiveContext(l.id, 0);
                             loadLessonDraft(l, 0);
@@ -271,17 +278,29 @@ export const AdminStudioPage = () => {
                             if (rawBackup) {
                                 const backup = JSON.parse(rawBackup);
                                 if (backup) {
-                                    if (Array.isArray(backup.blocks) && backup.blocks.length > 0) {
-                                        sortedBlocks = backup.blocks;
-                                        hasRestoredBackup = true;
-                                    }
-                                    if (backup.lessonTitle) setLessonTitle(backup.lessonTitle);
-                                    if (backup.durationMinutes) setDurationMinutes(backup.durationMinutes);
-                                    if (backup.level) setLevel(backup.level);
-                                    if (backup.learningObjectives) setLearningObjectives(backup.learningObjectives);
-                                    if (hasRestoredBackup) {
-                                        hasPendingChangesRef.current = true;
-                                        setHasUnsavedChanges(true);
+                                    // If status is PUBLISHED, purge stale backup immediately
+                                    if (data.status === 'PUBLISHED' || lesson.status === 'PUBLISHED') {
+                                        localStorage.removeItem(backupKey);
+                                    } else {
+                                        // Calculate total text length in server vs backup
+                                        const serverTextLen = sortedBlocks.reduce((sum, b) => sum + (b.content?.text?.length || b.content?.title?.length || 0), 0);
+                                        const backupBlocks = Array.isArray(backup.blocks) ? backup.blocks : [];
+                                        const backupTextLen = backupBlocks.reduce((sum, b) => sum + (b.content?.text?.length || b.content?.title?.length || 0), 0);
+
+                                        // Only restore if backup actually has equal or more text and is valid
+                                        if (backupBlocks.length > 0 && (backupTextLen >= serverTextLen || serverTextLen === 0)) {
+                                            sortedBlocks = backupBlocks;
+                                            hasRestoredBackup = true;
+                                            if (backup.lessonTitle) setLessonTitle(backup.lessonTitle);
+                                            if (backup.durationMinutes) setDurationMinutes(backup.durationMinutes);
+                                            if (backup.level) setLevel(backup.level);
+                                            if (backup.learningObjectives) setLearningObjectives(backup.learningObjectives);
+                                            hasPendingChangesRef.current = true;
+                                            setHasUnsavedChanges(true);
+                                        } else {
+                                            // Stale or empty backup, purge it
+                                            localStorage.removeItem(backupKey);
+                                        }
                                     }
                                 }
                             }
@@ -290,35 +309,47 @@ export const AdminStudioPage = () => {
                         }
                     }
 
-                    if (sortedBlocks.length > 0) {
-                        setBlocks(sortedBlocks);
-                    }
-                    else {
-                        // Provide sensible defaults for empty lessons (clean empty text)
-                        setBlocks([
-                            {
-                                id: `block_${Date.now()}`,
-                                order_index: 0,
-                                content_type: 'HEADING',
-                                activity_type: 'OBSERVE',
-                                response_type: 'NONE',
-                                title: data.title || lesson.title || 'Lesson Overview',
-                                content: { title: data.title || lesson.title || 'Lesson Overview', level: 1 },
-                                evidence_role: 'NONE',
-                                difficulty: 1,
-                            },
-                            {
-                                id: `block_${Date.now() + 1}`,
-                                order_index: 1,
-                                content_type: 'TEXT',
-                                activity_type: 'OBSERVE',
-                                response_type: 'NONE',
-                                title: 'Core Principles',
-                                content: { text: '' },
-                                evidence_role: 'NONE',
-                                difficulty: 1,
-                            },
-                        ]);
+                    const defaultBlocks = [
+                        {
+                            id: `block_${Date.now()}`,
+                            order_index: 0,
+                            content_type: 'HEADING',
+                            activity_type: 'OBSERVE',
+                            response_type: 'NONE',
+                            title: data.title || lesson.title || 'Lesson Overview',
+                            content: { title: data.title || lesson.title || 'Lesson Overview', level: 'H1' },
+                            evidence_role: 'NONE',
+                            difficulty: 1,
+                        },
+                        {
+                            id: `block_${Date.now() + 1}`,
+                            order_index: 1,
+                            content_type: 'TEXT',
+                            activity_type: 'OBSERVE',
+                            response_type: 'NONE',
+                            title: 'Core Principles',
+                            content: { text: '' },
+                            evidence_role: 'NONE',
+                            difficulty: 1,
+                        },
+                    ];
+
+                    const finalBlocks = sortedBlocks.length > 0 ? sortedBlocks : defaultBlocks;
+                    setBlocks(finalBlocks);
+
+                    // Synchronously update latestStateRef immediately so all subsequent actions see fresh data
+                    if (latestStateRef.current) {
+                        latestStateRef.current = {
+                            blocks: finalBlocks,
+                            lessonTitle: data.title || lesson.title,
+                            lessonSlug: data.slug || lesson.slug,
+                            durationMinutes: data.duration_minutes || 5,
+                            level: data.level || 'BEGINNER',
+                            learningObjectives: data.learning_objectives || [],
+                            currentVersionId: data.version_id || lesson.version_id,
+                            versionNumber: data.version_number || lesson.version_number || 1,
+                            status: data.status || lesson.status,
+                        };
                     }
 
                     // Restore block index safely from targetBlockIdx or URL/localStorage
@@ -331,7 +362,7 @@ export const AdminStudioPage = () => {
                         const parsed = parseInt(urlBlock !== null ? urlBlock : (localBlock || '0'), 10);
                         if (!isNaN(parsed)) resolvedBlockIdx = parsed;
                     }
-                    const totalBlocks = sortedBlocks.length > 0 ? sortedBlocks.length : 2;
+                    const totalBlocks = finalBlocks.length;
                     const safeBlockIdx = Math.max(0, Math.min(resolvedBlockIdx, totalBlocks - 1));
                     setActiveBlockIndex(safeBlockIdx);
                     persistActiveContext(lesson.id, safeBlockIdx);
@@ -436,7 +467,15 @@ export const AdminStudioPage = () => {
                 setHasUnsavedChanges(false);
                 setLastSavedTime(new Date());
                 setOccConflict(null);
-                await fetchCurriculumTree(selectedLesson?.id);
+                // Silently refresh tree sidebar without reloading the draft or resetting active block
+                try {
+                    const treeData = await apiClient('/api/v1/curriculum/admin/tree');
+                    if (treeData) {
+                        setTree(Array.isArray(treeData) ? treeData : (treeData?.tree || []));
+                    }
+                } catch (treeErr) {
+                    console.warn('Silent tree update failed:', treeErr);
+                }
                 return data;
             }
             return false;
@@ -733,10 +772,12 @@ export const AdminStudioPage = () => {
     };
     // ── 6. Governance Actions (Submit, Review, Direct Approve, Publish) ───────
     const handleSubmitForReview = async () => {
-        if (!currentVersionId) return;
+        const targetVersionId = latestStateRef.current?.currentVersionId || currentVersionId;
+        if (!targetVersionId) return;
         try {
             await handleSaveDraft();
-            await apiClient(`/api/v1/admin/lessons/${currentVersionId}/transition`, {
+            const activeVersionId = latestStateRef.current?.currentVersionId || targetVersionId;
+            await apiClient(`/api/v1/admin/lessons/${activeVersionId}/transition`, {
                 method: 'POST',
                 body: JSON.stringify({
                     new_status: 'EDITOR_REVIEW',
@@ -744,7 +785,15 @@ export const AdminStudioPage = () => {
                 }),
             });
             setStatus('EDITOR_REVIEW');
-            await fetchCurriculumTree();
+            if (latestStateRef.current) {
+                latestStateRef.current.status = 'EDITOR_REVIEW';
+            }
+            if (selectedLesson) {
+                const updatedLesson = { ...selectedLesson, status: 'EDITOR_REVIEW' };
+                setSelectedLesson(updatedLesson);
+                selectedLessonRef.current = updatedLesson;
+            }
+            await fetchCurriculumTree(selectedLesson?.id);
         }
         catch (err) {
             console.error('Failed to submit for review:', err);
@@ -753,13 +802,15 @@ export const AdminStudioPage = () => {
     };
 
     const handleDirectApprove = async () => {
-        if (!currentVersionId) {
+        const targetVersionId = latestStateRef.current?.currentVersionId || currentVersionId;
+        if (!targetVersionId) {
             alert('No active lesson version selected.');
             return;
         }
         try {
             await handleSaveDraft();
-            const data = await apiClient(`/api/v1/admin/lessons/${currentVersionId}/review`, {
+            const activeVersionId = latestStateRef.current?.currentVersionId || targetVersionId;
+            const data = await apiClient(`/api/v1/admin/lessons/${activeVersionId}/review`, {
                 method: 'POST',
                 body: JSON.stringify({
                     review_role: userRole || 'SUPER_ADMIN',
@@ -767,12 +818,17 @@ export const AdminStudioPage = () => {
                     notes: 'Directly approved by administrator.',
                 }),
             });
-            if (data?.version_status) {
-                setStatus(data.version_status);
-            } else {
-                setStatus('APPROVED');
+            const newStatus = data?.version_status || 'APPROVED';
+            setStatus(newStatus);
+            if (latestStateRef.current) {
+                latestStateRef.current.status = newStatus;
             }
-            await fetchCurriculumTree();
+            if (selectedLesson) {
+                const updatedLesson = { ...selectedLesson, status: newStatus };
+                setSelectedLesson(updatedLesson);
+                selectedLessonRef.current = updatedLesson;
+            }
+            await fetchCurriculumTree(selectedLesson?.id);
         } catch (err) {
             console.error('Failed to approve lesson:', err);
             alert(`Direct Approval Error: ${err?.message || 'Could not approve lesson.'}`);
@@ -780,11 +836,13 @@ export const AdminStudioPage = () => {
     };
 
     const handleApproveReview = async (notes) => {
-        if (!currentVersionId)
+        const targetVersionId = latestStateRef.current?.currentVersionId || currentVersionId;
+        if (!targetVersionId)
             return;
         try {
             await handleSaveDraft();
-            const data = await apiClient(`/api/v1/admin/lessons/${currentVersionId}/review`, {
+            const activeVersionId = latestStateRef.current?.currentVersionId || targetVersionId;
+            const data = await apiClient(`/api/v1/admin/lessons/${activeVersionId}/review`, {
                 method: 'POST',
                 body: JSON.stringify({
                     review_role: userRole || 'SUPER_ADMIN',
@@ -792,11 +850,17 @@ export const AdminStudioPage = () => {
                     notes: notes || 'Approved by administrator.',
                 }),
             });
-            if (data?.version_status)
-                setStatus(data.version_status);
-            else
-                setStatus('APPROVED');
-            await fetchCurriculumTree();
+            const newStatus = data?.version_status || 'APPROVED';
+            setStatus(newStatus);
+            if (latestStateRef.current) {
+                latestStateRef.current.status = newStatus;
+            }
+            if (selectedLesson) {
+                const updatedLesson = { ...selectedLesson, status: newStatus };
+                setSelectedLesson(updatedLesson);
+                selectedLessonRef.current = updatedLesson;
+            }
+            await fetchCurriculumTree(selectedLesson?.id);
         }
         catch (err) {
             console.error('Failed to approve review:', err);
@@ -877,6 +941,11 @@ export const AdminStudioPage = () => {
             const resolved = typeof updated === 'function' ? updated(current) : updated;
             nextBlocks[idx] = resolved;
 
+            // Immediately synchronize ref to avoid stale closures or race conditions
+            if (latestStateRef.current) {
+                latestStateRef.current.blocks = nextBlocks;
+            }
+
             const vId = latestStateRef.current?.currentVersionId;
             if (vId && typeof window !== 'undefined') {
                 try {
@@ -905,6 +974,9 @@ export const AdminStudioPage = () => {
             nextBlocks.forEach((b, i) => {
                 b.order_index = i;
             });
+            if (latestStateRef.current) {
+                latestStateRef.current.blocks = nextBlocks;
+            }
             return nextBlocks;
         });
         setActiveBlockIndex(targetIdx);
@@ -951,6 +1023,9 @@ export const AdminStudioPage = () => {
             nextBlocks.forEach((b, i) => {
                 b.order_index = i;
             });
+            if (latestStateRef.current) {
+                latestStateRef.current.blocks = nextBlocks;
+            }
             return nextBlocks;
         });
         setActiveBlockIndex(idx + 1);
@@ -966,6 +1041,9 @@ export const AdminStudioPage = () => {
             nextBlocks.forEach((b, i) => {
                 b.order_index = i;
             });
+            if (latestStateRef.current) {
+                latestStateRef.current.blocks = nextBlocks;
+            }
             return nextBlocks;
         });
         setActiveBlockIndex((prev) => Math.max(0, idx - 1));
@@ -1016,20 +1094,24 @@ export const AdminStudioPage = () => {
             }
             if (!newBlock) return prevBlocks;
 
+            let nextBlocks;
             if (insertAt !== null && insertAt >= 0 && insertAt <= prevBlocks.length) {
-                const nextBlocks = [
+                nextBlocks = [
                     ...prevBlocks.slice(0, insertAt),
                     { ...newBlock, order_index: insertAt },
                     ...prevBlocks.slice(insertAt),
                 ];
                 nextBlocks.forEach((b, i) => { b.order_index = i; });
                 setActiveBlockIndex(insertAt);
-                return nextBlocks;
             } else {
                 newBlock.order_index = prevBlocks.length;
                 setActiveBlockIndex(prevBlocks.length);
-                return [...prevBlocks, newBlock];
+                nextBlocks = [...prevBlocks, newBlock];
             }
+            if (latestStateRef.current) {
+                latestStateRef.current.blocks = nextBlocks;
+            }
+            return nextBlocks;
         });
         hasPendingChangesRef.current = true;
         setHasUnsavedChanges(true);
@@ -1037,6 +1119,9 @@ export const AdminStudioPage = () => {
 
     const handleReorderBlocks = useCallback((reorderedBlocks) => {
         setBlocks(reorderedBlocks);
+        if (latestStateRef.current) {
+            latestStateRef.current.blocks = reorderedBlocks;
+        }
         hasPendingChangesRef.current = true;
         setHasUnsavedChanges(true);
     }, []);
@@ -1218,16 +1303,27 @@ export const AdminStudioPage = () => {
           {/* Column 2: Pedagogical Canvas (Center Flex) */}
           {selectedLesson ? (
             <PedagogicalCanvas lessonTitle={lessonTitle} lessonSlug={lessonSlug} durationMinutes={durationMinutes} level={level} learningObjectives={learningObjectives} blocks={blocks} activeBlockIndex={activeBlockIndex} pacingIssues={qualityResult.pacingStreaks} onUpdateMetadata={(updates) => {
-                if (updates.title !== undefined)
+                if (updates.title !== undefined) {
                     setLessonTitle(updates.title);
-                if (updates.slug !== undefined)
+                    if (latestStateRef.current) latestStateRef.current.lessonTitle = updates.title;
+                }
+                if (updates.slug !== undefined) {
                     setLessonSlug(updates.slug);
-                if (updates.durationMinutes !== undefined)
+                    if (latestStateRef.current) latestStateRef.current.lessonSlug = updates.slug;
+                }
+                if (updates.durationMinutes !== undefined) {
                     setDurationMinutes(updates.durationMinutes);
-                if (updates.level !== undefined)
+                    if (latestStateRef.current) latestStateRef.current.durationMinutes = updates.durationMinutes;
+                }
+                if (updates.level !== undefined) {
                     setLevel(updates.level);
-                if (updates.learningObjectives !== undefined)
+                    if (latestStateRef.current) latestStateRef.current.level = updates.level;
+                }
+                if (updates.learningObjectives !== undefined) {
                     setLearningObjectives(updates.learningObjectives);
+                    if (latestStateRef.current) latestStateRef.current.learningObjectives = updates.learningObjectives;
+                }
+                hasPendingChangesRef.current = true;
                 setHasUnsavedChanges(true);
             }} onSelectBlock={(idx) => {
                 setActiveBlockIndex(idx);

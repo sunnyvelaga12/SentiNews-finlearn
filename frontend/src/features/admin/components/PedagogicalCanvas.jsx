@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Eye,
   HelpCircle,
@@ -263,6 +263,18 @@ export const PedagogicalCanvas = ({
     setInsertAtIdx(null);
   };
 
+  useEffect(() => {
+    if (activeBlockIndex !== null && activeBlockIndex !== undefined) {
+      const timer = setTimeout(() => {
+        const el = document.getElementById(`block-card-${activeBlockIndex}`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [activeBlockIndex]);
+
   return (
     <div className="flex-1 overflow-y-auto bg-[#FBFBFA] p-8 max-w-4xl mx-auto w-full space-y-8">
       {/* ── Lesson Header (Metadata & Objectives) ── */}
@@ -514,6 +526,7 @@ export const PedagogicalCanvas = ({
 
                 {/* ── Block Card ── */}
                 <div
+                  id={`block-card-${idx}`}
                   draggable
                   onDragStart={(e) => handleDragStart(e, idx)}
                   onDragEnter={(e) => handleDragEnter(e, idx)}
@@ -715,10 +728,11 @@ export const PedagogicalCanvas = ({
                           </div>
                           <input
                             type="text"
-                            value={content.title || content.text || ''}
+                            value={content.title || content.text || b.title || ''}
                             onChange={(e) =>
                               onUpdateBlock(idx, {
                                 ...b,
+                                title: e.target.value,
                                 content: {
                                   ...content,
                                   title: e.target.value,
@@ -736,7 +750,7 @@ export const PedagogicalCanvas = ({
                       {cType === 'TEXT' && (
                         <div className="space-y-1">
                           <textarea
-                            rows={3}
+                            rows={4}
                             value={content.text ?? content.body ?? b.prompt ?? ''}
                             onChange={(e) =>
                               onUpdateBlock(idx, {
@@ -746,7 +760,7 @@ export const PedagogicalCanvas = ({
                               })
                             }
                             placeholder="Provide clear pedagogical explanation, market dynamics, and core conceptual rationale (markdown supported)..."
-                            className="w-full text-xs text-slate-700 bg-slate-50 border border-slate-200 rounded-lg p-3 focus:outline-none focus:border-blue-500 focus:bg-white resize-none"
+                            className="w-full text-xs text-slate-700 bg-slate-50 border border-slate-200 rounded-lg p-3 focus:outline-none focus:border-blue-500 focus:bg-white resize-y min-h-[90px] leading-relaxed"
                           />
                           <div className="text-[10px] text-slate-400 flex items-center justify-between">
                             <span>Markdown supported · Canonical representation in content.text</span>

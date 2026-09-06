@@ -192,15 +192,173 @@ export const InspectorAndQualityPanel = ({ selectedBlock, selectedBlockIndex = 0
                 </div>
               )}
 
-              {/* Pure Content Context */}
+              {/* Pure Content Context & Live Content Editor */}
               {isPureContent && (
-                <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs text-slate-600 space-y-1">
-                  <div className="font-bold text-slate-700 flex items-center gap-1.5">
-                    <span>Pure Content Block ({cType})</span>
+                <div className="space-y-3 pt-2 border-t border-slate-100">
+                  <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs text-slate-600 space-y-1">
+                    <div className="font-bold text-slate-700 flex items-center gap-1.5">
+                      <span>Pure Content Block ({cType})</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500">
+                      Direct instructional content. Edits here synchronize live with the canvas and auto-save.
+                    </p>
                   </div>
-                  <p className="text-[11px] text-slate-500">
-                    Direct instructional content. Pure content blocks do not require learner response choices or evaluation keys.
-                  </p>
+
+                  {cType === 'TEXT' && (
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-slate-700">Content Text</label>
+                      <textarea
+                        rows={6}
+                        value={selectedBlock.content?.text ?? selectedBlock.content?.body ?? selectedBlock.prompt ?? ''}
+                        onChange={(e) =>
+                          onUpdateSelectedBlock({
+                            ...selectedBlock,
+                            content: {
+                              ...(selectedBlock.content || {}),
+                              text: e.target.value,
+                            },
+                            prompt: e.target.value,
+                          })
+                        }
+                        placeholder="Provide clear pedagogical explanation, market dynamics, and core conceptual rationale..."
+                        className="w-full text-xs text-slate-700 bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:outline-none focus:border-blue-500 focus:bg-white resize-none font-sans"
+                      />
+                      <div className="text-[10px] text-slate-400 flex items-center justify-between">
+                        <span>Markdown supported</span>
+                        <span>{((selectedBlock.content?.text ?? selectedBlock.prompt ?? '').length)} characters</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {cType === 'HEADING' && (
+                    <div className="space-y-2">
+                      <div className="space-y-1">
+                        <label className="text-xs font-bold text-slate-700">Heading Level</label>
+                        <select
+                          value={selectedBlock.content?.level || 'H1'}
+                          onChange={(e) =>
+                            onUpdateSelectedBlock({
+                              ...selectedBlock,
+                              content: {
+                                ...(selectedBlock.content || {}),
+                                level: e.target.value,
+                              },
+                            })
+                          }
+                          className="w-full p-2 text-xs font-medium border border-slate-200 rounded-md bg-slate-50 focus:outline-none focus:border-blue-500"
+                        >
+                          <option value="H1">H1 — Main Section Header</option>
+                          <option value="H2">H2 — Sub-concept Header</option>
+                          <option value="H3">H3 — Deep-dive Sub-point</option>
+                        </select>
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-bold text-slate-700">Heading Text</label>
+                        <input
+                          type="text"
+                          value={selectedBlock.content?.title || selectedBlock.title || ''}
+                          onChange={(e) =>
+                            onUpdateSelectedBlock({
+                              ...selectedBlock,
+                              title: e.target.value,
+                              content: {
+                                ...(selectedBlock.content || {}),
+                                title: e.target.value,
+                                text: e.target.value,
+                              },
+                            })
+                          }
+                          placeholder="Section Heading Text..."
+                          className="w-full text-xs p-2 border border-slate-200 rounded-md bg-slate-50 focus:outline-none focus:border-blue-500"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {cType === 'CALLOUT' && (
+                    <div className="space-y-2">
+                      <div className="space-y-1">
+                        <label className="text-xs font-bold text-slate-700">Callout Text</label>
+                        <textarea
+                          rows={3}
+                          value={selectedBlock.content?.text || ''}
+                          onChange={(e) =>
+                            onUpdateSelectedBlock({
+                              ...selectedBlock,
+                              content: {
+                                ...(selectedBlock.content || {}),
+                                text: e.target.value,
+                              },
+                            })
+                          }
+                          placeholder="Callout text..."
+                          className="w-full text-xs p-2 border border-slate-200 rounded-md bg-slate-50 focus:outline-none focus:border-blue-500 resize-none"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {cType === 'ANALOGY' && (
+                    <div className="space-y-2">
+                      <div className="space-y-1">
+                        <label className="text-xs font-bold text-slate-700">Everyday Metaphor</label>
+                        <input
+                          type="text"
+                          value={selectedBlock.content?.source_domain || selectedBlock.content?.metaphor || ''}
+                          onChange={(e) =>
+                            onUpdateSelectedBlock({
+                              ...selectedBlock,
+                              content: {
+                                ...(selectedBlock.content || {}),
+                                source_domain: e.target.value,
+                                metaphor: e.target.value,
+                              },
+                            })
+                          }
+                          placeholder="e.g. A water reservoir valve"
+                          className="w-full text-xs p-2 border border-slate-200 rounded-md bg-slate-50 focus:outline-none focus:border-blue-500"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-bold text-slate-700">Financial Concept</label>
+                        <input
+                          type="text"
+                          value={selectedBlock.content?.target_domain || selectedBlock.content?.concept || ''}
+                          onChange={(e) =>
+                            onUpdateSelectedBlock({
+                              ...selectedBlock,
+                              content: {
+                                ...(selectedBlock.content || {}),
+                                target_domain: e.target.value,
+                                concept: e.target.value,
+                              },
+                            })
+                          }
+                          placeholder="e.g. Central bank repo rate"
+                          className="w-full text-xs p-2 border border-slate-200 rounded-md bg-slate-50 focus:outline-none focus:border-blue-500"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-bold text-slate-700">Bridge Explanation</label>
+                        <textarea
+                          rows={3}
+                          value={selectedBlock.content?.explanation || selectedBlock.content?.text || ''}
+                          onChange={(e) =>
+                            onUpdateSelectedBlock({
+                              ...selectedBlock,
+                              content: {
+                                ...(selectedBlock.content || {}),
+                                explanation: e.target.value,
+                                text: e.target.value,
+                              },
+                            })
+                          }
+                          placeholder="Explain how the everyday metaphor maps to the financial mechanism..."
+                          className="w-full text-xs p-2 border border-slate-200 rounded-md bg-slate-50 focus:outline-none focus:border-blue-500 resize-none"
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
