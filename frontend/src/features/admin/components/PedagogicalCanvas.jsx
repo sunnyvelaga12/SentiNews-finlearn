@@ -42,6 +42,8 @@ import {
   CONTENT_BLOCK_TYPES,
   INTERACTIVE_BLOCK_TYPES,
   generateUUID,
+  groupBlocksIntoPages,
+  generatePageId,
 } from '../utils/blockRegistry';
 
 /**
@@ -124,6 +126,87 @@ export const PedagogicalCanvas = ({
   // ── Insert-at-Position State (Google Forms style) ─────────────────────────
   const [showBlockPicker, setShowBlockPicker] = useState(false);
   const [insertAtIdx, setInsertAtIdx] = useState(null); // null = append
+  const [targetInsertPageId, setTargetInsertPageId] = useState(null);
+
+  // ── Page Grouping Calculation & Lookup ───────────────────────────────────
+  const pages = React.useMemo(() => groupBlocksIntoPages(blocks), [blocks]);
+
+  const blockPageInfo = React.useMemo(() => {
+    const infoMap = new Map();
+    pages.forEach((page) => {
+      page.blockIndices.forEach((bIdx, positionInPage) => {
+        infoMap.set(bIdx, {
+          page,
+          pageNumber: page.pageNumber,
+          pageId: page.pageId,
+          isFirstInPage: positionInPage === 0,
+          isLastInPage: positionInPage === page.blockIndices.length - 1,
+          positionInPage,
+          totalInPage: page.blocks.length,
+          isMultiBlock: page.blocks.length > 1,
+        });
+      });
+    });
+    return infoMap;
+  }, [pages]);
+
+  const handleMergeWithPrev = (idx) => {
+    if (idx <= 0 || !blocks[idx] || !blocks[idx - 1]) return;
+    const prevBlock = blocks[idx - 1];
+    const currBlock = blocks[idx];
+    const targetPageId = prevBlock.page_id || prevBlock.section_id || generatePageId();
+
+    const nextBlocks = blocks.map((b, i) => {
+      if (i === idx - 1 && (!b.page_id && !b.section_id)) {
+        return { ...b, page_id: targetPageId, section_id: targetPageId };
+      }
+      if (i === idx) {
+        return { ...b, page_id: targetPageId, section_id: targetPageId };
+      }
+      return b;
+    });
+
+    if (onReorderBlocks) {
+      onReorderBlocks(nextBlocks);
+    } else {
+      onUpdateBlock(idx - 1, { ...prevBlock, page_id: targetPageId, section_id: targetPageId });
+      onUpdateBlock(idx, { ...currBlock, page_id: targetPageId, section_id: targetPageId });
+    }
+  };
+
+  const handleSplitNewPage = (idx) => {
+    if (!blocks[idx]) return;
+    const newPageId = generatePageId();
+    const currBlock = blocks[idx];
+    const oldPid = currBlock.page_id || currBlock.section_id;
+
+    const nextBlocks = blocks.map((b, i) => {
+      if (i >= idx && oldPid && (b.page_id === oldPid || b.section_id === oldPid)) {
+        return { ...b, page_id: newPageId, section_id: newPageId };
+      }
+      if (i === idx) {
+        return { ...b, page_id: newPageId, section_id: newPageId };
+      }
+      return b;
+    });
+
+    if (onReorderBlocks) {
+      onReorderBlocks(nextBlocks);
+    } else {
+      onUpdateBlock(idx, { ...currBlock, page_id: newPageId, section_id: newPageId });
+    }
+  };
+
+  const handleUngroupPage = (page) => {
+    if (!page || !page.blockIndices) return;
+    const nextBlocks = blocks.map((b, i) => {
+      if (page.blockIndices.includes(i)) {
+        return { ...b, page_id: null, section_id: null };
+      }
+      return b;
+    });
+    if (onReorderBlocks) onReorderBlocks(nextBlocks);
+  };
 
   const contentTypeConfig = {
     HEADING: { label: 'Heading', icon: Heading, color: 'bg-purple-50 text-purple-700 border-purple-200' },
@@ -252,15 +335,28 @@ export const PedagogicalCanvas = ({
   };
 
   // ── Insert-at-Position Handler ─────────────────────────────────────────────
-  const openPickerAt = (insertIdx) => {
+  const openPickerAt = (insertIdx, targetPageId = null) => {
     setInsertAtIdx(insertIdx);
+    setTargetInsertPageId(targetPageId);
     setShowBlockPicker(true);
   };
 
   const handlePickBlock = (blockType) => {
     setShowBlockPicker(false);
-    if (onAddBlock) onAddBlock(blockType, insertAtIdx);
+    if (onAddBlock) {
+      if (targetInsertPageId) {
+        onAddBlock({
+          type: blockType,
+          content_type: blockType,
+          page_id: targetInsertPageId,
+          section_id: targetInsertPageId,
+        }, insertAtIdx);
+      } else {
+        onAddBlock(blockType, insertAtIdx);
+      }
+    }
     setInsertAtIdx(null);
+    setTargetInsertPageId(null);
   };
 
   useEffect(() => {
@@ -420,47 +516,70 @@ export const PedagogicalCanvas = ({
 
       {/* ── Visual Flow Navigation Journey Ribbon ── */}
       {blocks.length > 0 && (
-        <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm space-y-2">
+        <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm space-y-2.5">
           <div className="flex items-center justify-between text-[11px] font-bold text-slate-500">
-            <span>CURRICULUM FLOW SEQUENCE</span>
-            <span className="text-slate-400">Click any block to jump & configure</span>
+            <span className="flex items-center gap-2">
+              <Layers className="w-3.5 h-3.5 text-blue-600" />
+              <span className="text-slate-800 font-extrabold uppercase tracking-wide">
+                Learner Journey: {pages.length} Step{pages.length === 1 ? '' : 's'}
+              </span>
+              <span className="text-slate-400 font-normal">
+                ({blocks.length} total block{blocks.length === 1 ? '' : 's'})
+              </span>
+            </span>
+            <span className="text-slate-400 hidden sm:inline">Click any block to jump & configure</span>
           </div>
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-thin">
-            {blocks.map((b, i) => {
-              const cType = b.content_type || b.type || 'TEXT';
-              const cfg = contentTypeConfig[cType] || contentTypeConfig.TEXT;
-              const StepIcon = cfg.icon;
-              const isActive = i === activeBlockIndex;
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-thin">
+            {pages.map((page, pIdx) => {
+              const isPageActive = page.blockIndices.includes(activeBlockIndex);
               return (
-                <React.Fragment key={b.id || i}>
-                  <button
-                    type="button"
-                    onClick={() => onSelectBlock(i)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold shrink-0 transition-all border ${
-                      isActive
-                        ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-                        : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+                <React.Fragment key={page.pageKey || pIdx}>
+                  <div
+                    className={`flex items-center gap-1.5 p-1 rounded-xl border transition-all ${
+                      isPageActive
+                        ? 'bg-blue-50/70 border-blue-300 ring-2 ring-blue-500/20'
+                        : 'bg-slate-50/70 border-slate-200 hover:border-slate-300'
                     }`}
                   >
-                    <span className="opacity-70 font-mono text-[10px]">{i + 1}.</span>
-                    <StepIcon className="w-3.5 h-3.5" />
-                    <span>
-                      {b.title
-                        ? b.title.length > 18
-                          ? b.title.slice(0, 18) + '...'
-                          : b.title
-                        : cfg.label}
+                    <span className="px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-slate-500 shrink-0">
+                      Step {page.pageNumber}
                     </span>
-                    {b.evidence_role === 'MASTERY_EVIDENCE' && (
-                      <span
-                        className={`w-1.5 h-1.5 rounded-full ${
-                          isActive ? 'bg-amber-300' : 'bg-emerald-500'
-                        }`}
-                        title="Mastery Evidence Assessment"
-                      />
-                    )}
-                  </button>
-                  {i < blocks.length - 1 && (
+                    <div className="flex items-center gap-1">
+                      {page.blocks.map((b, bInPageIdx) => {
+                        const globalIdx = page.blockIndices[bInPageIdx];
+                        const cType = b.content_type || b.type || 'TEXT';
+                        const cfg = contentTypeConfig[cType] || contentTypeConfig.TEXT;
+                        const StepIcon = cfg.icon;
+                        const isActive = globalIdx === activeBlockIndex;
+                        return (
+                          <button
+                            key={b.id || globalIdx}
+                            type="button"
+                            onClick={() => onSelectBlock(globalIdx)}
+                            className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-bold shrink-0 transition-all border ${
+                              isActive
+                                ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                                : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'
+                            }`}
+                            title={b.title || cfg.label}
+                          >
+                            <StepIcon className="w-3 h-3" />
+                            <span className="max-w-[70px] truncate text-[11px]">
+                              {b.title ? b.title : cfg.label}
+                            </span>
+                            {b.evidence_role === 'MASTERY_EVIDENCE' && (
+                              <span
+                                className={`w-1.5 h-1.5 rounded-full ${
+                                  isActive ? 'bg-amber-300' : 'bg-emerald-500'
+                                }`}
+                              />
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  {pIdx < pages.length - 1 && (
                     <span className="text-slate-300 text-xs font-mono shrink-0">➔</span>
                   )}
                 </React.Fragment>
@@ -506,22 +625,82 @@ export const PedagogicalCanvas = ({
             const content = b.content || {};
             const isDragTarget = dropTargetIdx === idx && draggingIdx !== idx;
             const isDragging = draggingIdx === idx;
+            const pageInfo = blockPageInfo.get(idx);
 
             return (
               <React.Fragment key={b.id || idx}>
+                {/* ── Step / Page Group Header (rendered before first block in each page) ── */}
+                {pageInfo?.isFirstInPage && (
+                  <div className="flex items-center justify-between px-4 py-2.5 bg-gradient-to-r from-blue-50/90 via-indigo-50/40 to-slate-50 border border-blue-200/80 rounded-xl mt-6 mb-2 shadow-xs">
+                    <div className="flex items-center gap-2.5 flex-wrap">
+                      <div className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-900 text-white rounded-lg text-xs font-black tracking-wide shadow-xs">
+                        <Layers className="w-3.5 h-3.5 text-blue-400" />
+                        <span>STEP {pageInfo.pageNumber} OF {pages.length}</span>
+                      </div>
+                      {pageInfo.totalInPage > 1 ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-100/90 text-blue-800 border border-blue-200">
+                          Multi-Block Page ({pageInfo.totalInPage} blocks rendered together)
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
+                          Single Block Step
+                        </span>
+                      )}
+                      {pageInfo.page.isInteractive && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                          Interactive Assessment
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 text-xs shrink-0">
+                      {pageInfo.totalInPage > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => handleUngroupPage(pageInfo.page)}
+                          className="text-[11px] font-bold text-slate-500 hover:text-slate-800 hover:bg-white/80 px-2 py-1 rounded transition-colors"
+                          title="Split this multi-block step into individual single-block steps"
+                        >
+                          Ungroup Step
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => openPickerAt(idx + pageInfo.totalInPage, pageInfo.pageId || generatePageId())}
+                        className="text-[11px] font-bold text-blue-600 hover:text-blue-700 bg-white hover:bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200 shadow-2xs flex items-center gap-1 transition-colors"
+                      >
+                        <Plus className="w-3 h-3" />
+                        <span>Add Block to Step {pageInfo.pageNumber}</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* ── Insert Zone ── */}
-                <div className="group/insert relative h-5 flex items-center justify-center my-0.5 -mx-1">
+                <div className="group/insert relative h-6 flex items-center justify-center my-0.5 -mx-1">
                   <div className="absolute inset-0 flex items-center">
                     <div className="w-full border-t border-transparent group-hover/insert:border-blue-300 transition-colors" />
                   </div>
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); openPickerAt(idx); }}
-                    className="relative z-10 opacity-0 group-hover/insert:opacity-100 transition-all flex items-center gap-1 px-2 py-0.5 bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-bold rounded-full shadow-md"
-                  >
-                    <Plus className="w-2.5 h-2.5" />
-                    Insert block here
-                  </button>
+                  <div className="relative z-10 opacity-0 group-hover/insert:opacity-100 transition-all flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); openPickerAt(idx); }}
+                      className="flex items-center gap-1 px-2.5 py-0.5 bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-bold rounded-full shadow-md transition-transform hover:scale-105"
+                    >
+                      <Plus className="w-2.5 h-2.5" />
+                      Insert block here
+                    </button>
+                    {idx > 0 && blockPageInfo.get(idx - 1)?.pageNumber === blockPageInfo.get(idx)?.pageNumber && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); handleSplitNewPage(idx); }}
+                        className="flex items-center gap-1 px-2.5 py-0.5 bg-amber-600 hover:bg-amber-500 text-white text-[10px] font-bold rounded-full shadow-md transition-transform hover:scale-105"
+                        title="Split this step into two separate steps"
+                      >
+                        <Layers className="w-2.5 h-2.5" />
+                        Insert Page Break
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {/* ── Block Card ── */}
@@ -680,20 +859,50 @@ export const PedagogicalCanvas = ({
                           </select>
                         )}
 
-                        {/* Section Identifier / Tag */}
-                        <div className="flex items-center gap-1 text-[10px] text-slate-400 border border-dashed border-slate-200 rounded px-1.5 py-0.5">
-                          <Layers className="w-3 h-3" />
-                          <input
-                            type="text"
-                            placeholder="Section (optional)"
-                            value={b.section_id || ''}
-                            onChange={(e) =>
-                              onUpdateBlock(idx, { ...b, section_id: e.target.value || null })
-                            }
-                            onClick={(e) => e.stopPropagation()}
-                            className="bg-transparent border-none focus:outline-none text-slate-600 font-medium w-24 text-[10px]"
-                          />
-                        </div>
+                        {/* Step & Page Grouping Control */}
+                        {(() => {
+                          const info = blockPageInfo.get(idx);
+                          const isSameAsPrev = idx > 0 && blockPageInfo.get(idx - 1)?.pageNumber === info?.pageNumber;
+                          const prevPageNum = idx > 0 ? blockPageInfo.get(idx - 1)?.pageNumber : null;
+
+                          return (
+                            <div className="flex items-center gap-1.5 bg-slate-50 hover:bg-slate-100/80 border border-slate-200 rounded-lg px-2 py-0.5 transition-colors">
+                              <Layers className="w-3 h-3 text-blue-600" />
+                              <span className="text-[11px] font-black text-slate-700">
+                                Step {info?.pageNumber || idx + 1}
+                              </span>
+                              {info && info.totalInPage > 1 && (
+                                <span className="text-[10px] text-slate-500 font-medium">
+                                  ({info.positionInPage + 1}/{info.totalInPage})
+                                </span>
+                              )}
+
+                              {/* Quick Grouping Actions */}
+                              <div className="flex items-center gap-1 ml-1 pl-1.5 border-l border-slate-300">
+                                {idx > 0 && !isSameAsPrev && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); handleMergeWithPrev(idx); }}
+                                    className="text-[10px] font-bold text-blue-600 hover:text-blue-800 hover:bg-blue-100/60 px-1.5 py-0.5 rounded transition-colors"
+                                    title={`Group this block into Step ${prevPageNum} with previous block`}
+                                  >
+                                    + Merge with Step {prevPageNum}
+                                  </button>
+                                )}
+                                {isSameAsPrev && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); handleSplitNewPage(idx); }}
+                                    className="text-[10px] font-bold text-amber-700 hover:text-amber-900 hover:bg-amber-100/60 px-1.5 py-0.5 rounded transition-colors"
+                                    title="Separate this block to start a new step"
+                                  >
+                                    ✂ Split to New Step
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </div>
 
                       {/* Block Title */}

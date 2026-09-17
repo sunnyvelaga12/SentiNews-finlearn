@@ -696,6 +696,13 @@ export const SessionPlayerPage = () => {
 
         {/* Clear Cognitive Job: Prompt Headline */}
         {(() => {
+          // If this is a page group, and the first block is a HEADING or has titles,
+          // the inner blocks will render their headings naturally
+          if (payload.is_page_group && Array.isArray(payload.blocks)) {
+            const firstBlockType = (payload.blocks[0]?.content_type || payload.blocks[0]?.renderer || '').toUpperCase();
+            if (firstBlockType === 'HEADING') return null;
+          }
+
           const rawType = (
             currentItem.content_type ||
             payload.content_type ||
@@ -730,6 +737,69 @@ export const SessionPlayerPage = () => {
         {/* Learning Object: Visualizer container */}
         <div className="w-full">
           {(() => {
+            // ── MULTI-BLOCK PAGE RENDERING ──────────────────────────────────
+            if (payload.is_page_group && Array.isArray(payload.blocks) && payload.blocks.length > 0) {
+              return (
+                <div className="w-full space-y-6">
+                  {payload.blocks.map((blockPayload, bIdx) => {
+                    const bType = (
+                      blockPayload.content_type ||
+                      blockPayload.renderer ||
+                      (blockPayload.ohlc ? 'CANDLESTICK' : 'TEXT')
+                    ).toUpperCase();
+
+                    // If it's an interactive question block inside the page group
+                    if (['SCENARIO', 'MCQ', 'IMAGE_SELECTION', 'TRUE_FALSE'].includes(bType)) {
+                      return (
+                        <div key={blockPayload.id || bIdx} className="space-y-3 pt-2">
+                          {blockPayload.context && (
+                            <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl text-xs sm:text-sm text-slate-700 leading-relaxed font-medium">
+                              {blockPayload.context}
+                            </div>
+                          )}
+                          {blockPayload.dilemma && (
+                            <div className="p-3.5 bg-amber-50/70 border border-amber-200 rounded-xl text-xs sm:text-sm text-amber-900 leading-relaxed font-medium">
+                              {blockPayload.dilemma}
+                            </div>
+                          )}
+                          {blockPayload.prompt && (
+                            <h2 className="text-lg sm:text-xl font-black text-[#17202A] tracking-tight">
+                              {blockPayload.prompt}
+                            </h2>
+                          )}
+                        </div>
+                      );
+                    }
+
+                    // Candlestick visualizer
+                    if (bType === 'CANDLESTICK' && (blockPayload.ohlc || blockPayload.activity_type === 'PRACTICE')) {
+                      return (
+                        <div key={blockPayload.id || bIdx} className="my-2">
+                          <CandlestickVisualizer
+                            initialOHLC={blockPayload.ohlc || effectiveOHLC}
+                            presentationMode={activePresentationMode}
+                            currencyCode={currencyCode}
+                            locale={locale}
+                            interactive={blockPayload.activity_type === 'PRACTICE'}
+                            showMetrics={activePresentationMode === 'EXPLAIN'}
+                            showLabels={true}
+                          />
+                        </div>
+                      );
+                    }
+
+                    const BlockComponent = getRenderer(bType);
+                    return (
+                      <div key={blockPayload.id || bIdx} className="my-1">
+                        <BlockComponent payload={blockPayload} effectiveInteraction={blockPayload.activity_type || currentItem.activity_type} />
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            }
+
+            // ── SINGLE-BLOCK RENDERING (Original Fallback) ───────────────────
             const rawType = (
               currentItem.content_type ||
               payload.content_type ||
@@ -759,7 +829,7 @@ export const SessionPlayerPage = () => {
         </div>
 
         {/* If question block has an illustration / diagram, render it */}
-        {isQuestionStep && (payload.image_url || payload.media_asset_id || currentItem.image_url || currentItem.media_asset_id) && (
+        {isQuestionStep && (!payload.is_page_group || !payload.blocks?.some(b => (b.content_type || b.renderer) === 'IMAGE')) && (payload.image_url || payload.media_asset_id || currentItem.image_url || currentItem.media_asset_id) && (
           <div className="w-full max-h-72 rounded-2xl bg-white border border-slate-200 p-2 overflow-hidden flex items-center justify-center shadow-sm">
             <OptionVisual
               mediaAssetId={payload.media_asset_id || currentItem.media_asset_id}

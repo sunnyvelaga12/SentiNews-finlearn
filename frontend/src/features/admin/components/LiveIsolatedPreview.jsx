@@ -1,9 +1,10 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { ActivityRenderer } from '../../learning/components/ActivityRenderer';
-import { Monitor, Tablet, Smartphone, RotateCcw, ArrowLeft, ArrowRight, ShieldCheck, CheckCircle2, XCircle, AlertCircle, HelpCircle, } from 'lucide-react';
+import { Monitor, Tablet, Smartphone, RotateCcw, ArrowLeft, ArrowRight, ShieldCheck, CheckCircle2, XCircle, AlertCircle, HelpCircle, Layers } from 'lucide-react';
 import { getCachedMediaUrl } from '../utils/mediaResolver';
 import { resolveEndpointUrl } from '../../../services/apiClient';
 import { ErrorBoundary } from '../../../components/ErrorBoundary';
+import { groupBlocksIntoPages } from '../utils/blockRegistry';
 
 export const LiveIsolatedPreview = ({
     lessonTitle,
@@ -12,20 +13,27 @@ export const LiveIsolatedPreview = ({
     onStepChange,
     onClosePreview,
 }) => {
+    // Page Grouping
+    const pages = useMemo(() => groupBlocksIntoPages(blocks), [blocks]);
+
     // Navigation & Scope
     const [previewMode, setPreviewMode] = useState('STEP');
-    const [currentStep, setCurrentStep] = useState(activeStepIndex);
+    const [currentStep, setCurrentStep] = useState(0);
 
-    React.useEffect(() => {
-        if (activeStepIndex !== undefined && activeStepIndex !== null && activeStepIndex !== currentStep) {
-            setCurrentStep(activeStepIndex);
+    useEffect(() => {
+        if (activeStepIndex !== undefined && activeStepIndex !== null && pages.length > 0) {
+            const pIdx = pages.findIndex(p => p.blockIndices.includes(activeStepIndex));
+            if (pIdx >= 0 && pIdx !== currentStep) {
+                setCurrentStep(pIdx);
+            }
         }
-    }, [activeStepIndex]);
+    }, [activeStepIndex, pages]);
 
     const handleSelectStep = (step) => {
-        const next = Math.max(0, Math.min(step, (blocks.length || 1) - 1));
+        const next = Math.max(0, Math.min(step, (pages.length || 1) - 1));
         setCurrentStep(next);
-        onStepChange?.(next);
+        const targetBlockIdx = pages[next]?.blockIndices[0] ?? next;
+        onStepChange?.(targetBlockIdx);
     };
     const [viewport, setViewport] = useState('DESKTOP');
     const [syntheticState, setSyntheticState] = useState('FRESH');
@@ -33,17 +41,24 @@ export const LiveIsolatedPreview = ({
     const [userAnswers, setUserAnswers] = useState({});
     const [submittedSteps, setSubmittedSteps] = useState({});
     const [revealedHints, setRevealedHints] = useState({});
-    const block = blocks[currentStep] || {
+
+    const currentPage = pages[currentStep] || { blocks: [], blockIndices: [], isInteractive: false };
+    const interactiveBlock = currentPage.blocks?.find(
+        (b) => b.response_type && !['NONE', ''].includes(b.response_type)
+    );
+    const block = interactiveBlock || currentPage.blocks?.[0] || {
         title: 'Empty Step',
         prompt: 'No content configured yet.',
         type: 'OBSERVE',
-        renderer: 'CANDLESTICK',
+        renderer: 'TEXT',
         evidence_role: 'NONE',
         payload: {},
     };
+    const targetQuestionBlock = interactiveBlock || block;
+
     const options = useMemo(() => {
-        const rawOpts = block.options || [];
-        const correctId = block.evaluation?.correct_option_id || block.correct_option_id;
+        const rawOpts = targetQuestionBlock.options || [];
+        const correctId = targetQuestionBlock.evaluation?.correct_option_id || targetQuestionBlock.correct_option_id;
         return rawOpts.map((o, idx) => {
             const rawImg = o.media_asset_id ? getCachedMediaUrl(o.media_asset_id) : (o.image_url || o.url);
             return {
@@ -54,12 +69,12 @@ export const LiveIsolatedPreview = ({
                 is_correct: o.is_correct === true || o.id === correctId,
             };
         });
-    }, [block]);
+    }, [targetQuestionBlock]);
     const hasImageOptions = useMemo(() => options.some(o => o.image_url || o.media_asset_id), [options]);
     const correctOptionId = useMemo(() => {
         const found = options.find((o) => o.is_correct);
-        return found?.id || block.evaluation?.correct_option_id || block.correct_option_id || options[0]?.id;
-    }, [options, block]);
+        return found?.id || targetQuestionBlock.evaluation?.correct_option_id || targetQuestionBlock.correct_option_id || options[0]?.id;
+    }, [options, targetQuestionBlock]);
     // Synthetic State Overrides
     const selectedOption = useMemo(() => {
         if (syntheticState === 'WRONG_ANSWER') {
@@ -179,14 +194,14 @@ export const LiveIsolatedPreview = ({
           {previewMode === 'FULL' && (<div className="mb-6 space-y-2">
               <div className="flex items-center justify-between text-xs text-slate-400">
                 <span>
-                  Step {currentStep + 1} of {blocks.length}
+                  Step {currentStep + 1} of {pages.length}
                 </span>
                 <span className="font-semibold text-blue-400">
-                  {Math.round(((currentStep + 1) / blocks.length) * 100)}% Complete
+                  {Math.round(((currentStep + 1) / (pages.length || 1)) * 100)}% Complete
                 </span>
               </div>
               <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                <div className="h-full bg-blue-500 transition-all duration-300" style={{ width: `${((currentStep + 1) / blocks.length) * 100}%` }}/>
+                <div className="h-full bg-blue-500 transition-all duration-300" style={{ width: `${((currentStep + 1) / (pages.length || 1)) * 100}%` }}/>
               </div>
             </div>)}
 
@@ -200,38 +215,74 @@ export const LiveIsolatedPreview = ({
 
           {/* Step Title & Prompt */}
           <div className="mb-6 space-y-1">
-            <div className="text-xs font-bold uppercase tracking-wider text-blue-400">
-              Step {currentStep + 1}: {block.type || 'OBSERVE'}
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-blue-400">
+                Step {currentStep + 1} of {pages.length}
+              </span>
+              {currentPage.blocks.length > 1 && (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/40 flex items-center gap-1">
+                  <Layers className="w-3 h-3" /> Multi-Block Page ({currentPage.blocks.length} blocks)
+                </span>
+              )}
             </div>
             <h2 className="text-xl font-bold text-white tracking-tight">
-              {block.title || 'Untitled Step'}
+              {block.title || (currentPage.blocks.length > 1 ? `Page ${currentStep + 1}` : 'Untitled Step')}
             </h2>
             {block.prompt && (<p className="text-sm text-slate-300 leading-relaxed pt-1">{block.prompt}</p>)}
           </div>
 
           {/* Canonical ActivityRenderer Execution */}
-          <div className="flex-1">
-            <ErrorBoundary title="Activity Preview Error">
-              <ActivityRenderer
-                activityType={block.activity_type || block.type || 'EXPERIENCE'}
-                rendererType={block.content_type || block.renderer || 'TEXT'}
-                evidenceRole={block.evidence_role || 'NONE'}
-                title={block.title}
-                prompt={block.prompt || block.content?.body || block.content?.text}
-                payload={{
-                  ...(block.content || {}),
-                  ...(block.payload || {}),
-                  media_asset_id: block.media_asset_id,
-                  url: block.media_asset_id
-                    ? getCachedMediaUrl(block.media_asset_id)
-                    : (block.content?.url || block.content?.image_url),
-                }}
-                provenance={block.source_citation || block.provenance}
-                options={null}
-                isPreview={true}
-              />
-            </ErrorBoundary>
-          </div>
+          {currentPage.blocks.length > 1 ? (
+            <div className="flex-1 space-y-6">
+              {currentPage.blocks.map((b, bIdx) => (
+                <div key={b.id || bIdx} className="space-y-2 pb-4 border-b border-slate-800/80 last:border-b-0 last:pb-0">
+                  <ErrorBoundary title="Block Preview Error">
+                    <ActivityRenderer
+                      activityType={b.activity_type || b.type || 'EXPERIENCE'}
+                      rendererType={b.content_type || b.renderer || 'TEXT'}
+                      evidenceRole={b.evidence_role || 'NONE'}
+                      title={b.title}
+                      prompt={b.prompt || b.content?.body || b.content?.text || b.content?.prompt}
+                      payload={{
+                        ...(b.content || {}),
+                        ...(b.payload || {}),
+                        media_asset_id: b.media_asset_id,
+                        url: b.media_asset_id
+                          ? getCachedMediaUrl(b.media_asset_id)
+                          : (b.content?.url || b.content?.image_url),
+                      }}
+                      provenance={b.source_citation || b.provenance}
+                      options={null}
+                      isPreview={true}
+                    />
+                  </ErrorBoundary>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="flex-1">
+              <ErrorBoundary title="Activity Preview Error">
+                <ActivityRenderer
+                  activityType={block.activity_type || block.type || 'EXPERIENCE'}
+                  rendererType={block.content_type || block.renderer || 'TEXT'}
+                  evidenceRole={block.evidence_role || 'NONE'}
+                  title={block.title}
+                  prompt={block.prompt || block.content?.body || block.content?.text}
+                  payload={{
+                    ...(block.content || {}),
+                    ...(block.payload || {}),
+                    media_asset_id: block.media_asset_id,
+                    url: block.media_asset_id
+                      ? getCachedMediaUrl(block.media_asset_id)
+                      : (block.content?.url || block.content?.image_url),
+                  }}
+                  provenance={block.source_citation || block.provenance}
+                  options={null}
+                  isPreview={true}
+                />
+              </ErrorBoundary>
+            </div>
+          )}
 
           {/* Multiple Choice Interactive Feedback Box (Client-Side Deterministic Evaluator) */}
           {options.length > 0 && (<div className="mt-6 pt-4 border-t border-slate-800 space-y-4">
@@ -319,7 +370,7 @@ export const LiveIsolatedPreview = ({
             </div>)}
 
           {/* Navigation Controls across steps */}
-          {blocks.length > 1 && (
+          {pages.length > 1 && (
             <div className="mt-8 pt-4 border-t border-slate-800 flex items-center justify-between">
               <button
                 onClick={() => handleSelectStep(currentStep - 1)}
@@ -330,12 +381,12 @@ export const LiveIsolatedPreview = ({
               </button>
 
               <div className="text-xs text-slate-400 font-medium">
-                Step <span className="font-bold text-white">{currentStep + 1}</span> of {blocks.length}
+                Step <span className="font-bold text-white">{currentStep + 1}</span> of {pages.length}
               </div>
 
               <button
                 onClick={() => handleSelectStep(currentStep + 1)}
-                disabled={currentStep === blocks.length - 1}
+                disabled={currentStep === pages.length - 1}
                 className="flex items-center gap-1 px-4 py-1.5 rounded bg-blue-600 hover:bg-blue-500 disabled:opacity-30 text-xs font-bold text-white transition-colors"
               >
                 Next Step <ArrowRight className="w-4 h-4" />

@@ -154,7 +154,8 @@ class StoredBlock(BaseModel):
     """
     id: str = Field(..., description="Stable opaque block UUID")
     order_index: int = Field(..., ge=0, description="0-indexed position in lesson sequence")
-    section_id: Optional[str] = Field(None, description="Optional structural grouping identifier")
+    page_id: Optional[str] = Field(None, description="Page grouping identifier — blocks sharing the same page_id render as one step")
+    section_id: Optional[str] = Field(None, description="Legacy alias for page_id (backward compat)")
     content_type: ContentType
     content: Dict[str, Any] = Field(default_factory=dict)
     activity_type: Optional[ActivityType] = None
@@ -263,6 +264,7 @@ class LearnerBlock(BaseModel):
     """
     id: str
     order_index: int
+    page_id: Optional[str] = None
     section_id: Optional[str] = None
     content_type: ContentType
     content: Dict[str, Any] = Field(default_factory=dict)

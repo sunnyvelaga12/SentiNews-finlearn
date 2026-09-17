@@ -47,6 +47,7 @@ export const BLOCK_CAPABILITIES = {
     createDefault: (orderIndex) => ({
       id: generateUUID(),
       order_index: orderIndex,
+      page_id: null,
       section_id: null,
       content_type: 'HEADING',
       activity_type: 'OBSERVE',
@@ -78,6 +79,7 @@ export const BLOCK_CAPABILITIES = {
     createDefault: (orderIndex) => ({
       id: generateUUID(),
       order_index: orderIndex,
+      page_id: null,
       section_id: null,
       content_type: 'TEXT',
       activity_type: 'OBSERVE',
@@ -109,6 +111,7 @@ export const BLOCK_CAPABILITIES = {
     createDefault: (orderIndex) => ({
       id: generateUUID(),
       order_index: orderIndex,
+      page_id: null,
       section_id: null,
       content_type: 'IMAGE',
       activity_type: 'OBSERVE',
@@ -141,6 +144,7 @@ export const BLOCK_CAPABILITIES = {
     createDefault: (orderIndex) => ({
       id: generateUUID(),
       order_index: orderIndex,
+      page_id: null,
       section_id: null,
       content_type: 'CALLOUT',
       activity_type: 'OBSERVE',
@@ -173,6 +177,7 @@ export const BLOCK_CAPABILITIES = {
     createDefault: (orderIndex) => ({
       id: generateUUID(),
       order_index: orderIndex,
+      page_id: null,
       section_id: null,
       content_type: 'ANALOGY',
       activity_type: 'OBSERVE',
@@ -206,6 +211,7 @@ export const BLOCK_CAPABILITIES = {
     createDefault: (orderIndex) => ({
       id: generateUUID(),
       order_index: orderIndex,
+      page_id: null,
       section_id: null,
       content_type: 'TABLE',
       activity_type: 'OBSERVE',
@@ -250,6 +256,7 @@ export const BLOCK_CAPABILITIES = {
       return {
         id: generateUUID(),
         order_index: orderIndex,
+        page_id: null,
         section_id: null,
         content_type: 'SCENARIO',
         activity_type: 'PRACTICE',
@@ -310,6 +317,7 @@ export const BLOCK_CAPABILITIES = {
       return {
         id: generateUUID(),
         order_index: orderIndex,
+        page_id: null,
         section_id: null,
         content_type: 'IMAGE',
         activity_type: 'PRACTICE',
@@ -375,6 +383,7 @@ export const BLOCK_CAPABILITIES = {
       return {
         id: generateUUID(),
         order_index: orderIndex,
+        page_id: null,
         section_id: null,
         content_type: 'SCENARIO',
         activity_type: 'APPLICATION',
@@ -431,6 +440,7 @@ export const BLOCK_CAPABILITIES = {
     createDefault: (orderIndex) => ({
       id: generateUUID(),
       order_index: orderIndex,
+      page_id: null,
       section_id: null,
       content_type: 'CANDLESTICK',
       activity_type: 'OBSERVE',
@@ -499,3 +509,71 @@ export const CONTENT_BLOCK_TYPES = Object.values(BLOCK_CAPABILITIES).filter(
 export const INTERACTIVE_BLOCK_TYPES = Object.values(BLOCK_CAPABILITIES).filter(
   (b) => b.group === 'INTERACTIVE'
 );
+
+/**
+ * Generates a clean page ID string
+ */
+export function generatePageId() {
+  return `page_${generateUUID().slice(0, 8)}`;
+}
+
+/**
+ * Groups a sequence of blocks by their page_id (or legacy section_id).
+ * Blocks with the same page_id are grouped into a single page.
+ * Blocks with null/empty page_id are treated as solo pages (one block per step).
+ * 
+ * Returns: Array of {
+ *   pageId: string,
+ *   pageIndex: number (0-indexed page sequence),
+ *   pageNumber: number (1-indexed display number),
+ *   isExplicit: boolean (whether page_id was explicitly assigned),
+ *   blocks: StoredBlock[],
+ *   blockIndices: number[],
+ *   isInteractive: boolean,
+ *   primaryBlock: StoredBlock,
+ * }
+ */
+export function groupBlocksIntoPages(blocks = []) {
+  if (!blocks || blocks.length === 0) return [];
+  
+  const pageMap = new Map();
+  const pages = [];
+
+  blocks.forEach((block, index) => {
+    const rawPid = block.page_id || block.section_id || null;
+    const isExplicit = Boolean(rawPid && String(rawPid).trim());
+    const pidKey = isExplicit ? String(rawPid).trim() : `__solo_${block.id || index}`;
+
+    if (pageMap.has(pidKey)) {
+      const page = pageMap.get(pidKey);
+      page.blocks.push(block);
+      page.blockIndices.push(index);
+      const isBlockInteractive = block.response_type && !['NONE', ''].includes(block.response_type);
+      if (isBlockInteractive) {
+        page.isInteractive = true;
+        if (!page.hasInteractivePrimary) {
+          page.primaryBlock = block;
+          page.hasInteractivePrimary = true;
+        }
+      }
+    } else {
+      const isBlockInteractive = block.response_type && !['NONE', ''].includes(block.response_type);
+      const newPage = {
+        pageId: isExplicit ? pidKey : null,
+        pageKey: pidKey,
+        pageIndex: pages.length,
+        pageNumber: pages.length + 1,
+        isExplicit,
+        blocks: [block],
+        blockIndices: [index],
+        isInteractive: Boolean(isBlockInteractive),
+        primaryBlock: block,
+        hasInteractivePrimary: Boolean(isBlockInteractive),
+      };
+      pageMap.set(pidKey, newPage);
+      pages.push(newPage);
+    }
+  });
+
+  return pages;
+}

@@ -150,6 +150,8 @@ async def get_session(
                 for m in m_res.scalars().all():
                     media_url_map[str(m.id)] = m.url
 
+        # Build individual block data first, then group by page_id
+        raw_items = []
         for idx, raw_block in enumerate(sorted_blocks):
             b_id = str(raw_block.get("id"))
             resp_type = raw_block.get("response_type")
@@ -214,11 +216,12 @@ async def get_session(
                 or f"Block {pos}"
             )
             c_type = raw_block.get("content_type") or raw_block.get("renderer") or "TEXT"
+            page_id = raw_block.get("page_id") or raw_block.get("section_id") or None
 
             if is_interactive:
                 expected_act_id = uuid.uuid5(version.id, b_id)
                 item = items_by_act.get(expected_act_id)
-                items_payload.append({
+                raw_items.append({
                     "session_item_id": str(item.id) if item else f"item_{b_id}",
                     "activity_id": str(expected_act_id),
                     "activity_type": raw_block.get("activity_type") or "PRACTICE",
@@ -238,10 +241,11 @@ async def get_session(
                     "selection_reason": item.selection_reason if item else "CURRICULUM_BLOCK",
                     "status": item.status if item else "PENDING",
                     "payload": sanitized_payload,
+                    "_page_id": page_id,
                 })
             else:
                 # Pure-content block
-                items_payload.append({
+                raw_items.append({
                     "session_item_id": f"content_{b_id}",
                     "activity_id": None,
                     "activity_type": raw_block.get("activity_type") or "EXPERIENCE",
@@ -258,7 +262,60 @@ async def get_session(
                     "selection_reason": "LESSON_STREAM",
                     "status": "COMPLETED",
                     "payload": sanitized_payload,
+                    "_page_id": page_id,
                 })
+
+        # Group items by page_id into multi-block pages
+        # Blocks with same page_id become one step; blocks with None page_id are solo steps
+        from collections import OrderedDict
+        page_groups = OrderedDict()
+        for item in raw_items:
+            pid = item.pop("_page_id", None)
+            if pid:
+                if pid not in page_groups:
+                    page_groups[pid] = []
+                page_groups[pid].append(item)
+            else:
+                # Solo item — use unique key to avoid merging
+                page_groups[f"__solo_{item['session_item_id']}"] = [item]
+
+        for page_id_key, group_items in page_groups.items():
+            if len(group_items) == 1:
+                # Single block — pass through as-is
+                items_payload.append(group_items[0])
+            else:
+                # Multi-block page: merge into one step
+                # Use the interactive block as the primary item (if any), otherwise first block
+                primary = next((it for it in group_items if it["is_interactive"]), group_items[0])
+                # Build the blocks array for the page payload with full rendering metadata
+                page_blocks = []
+                for it in group_items:
+                    bp = dict(it["payload"])
+                    bp["content_type"] = it.get("content_type") or bp.get("content_type")
+                    bp["renderer"] = it.get("renderer") or bp.get("renderer") or bp.get("content_type")
+                    bp["title"] = it.get("title") or bp.get("title")
+                    bp["activity_type"] = it.get("activity_type") or bp.get("activity_type")
+                    if it.get("image_url") and not bp.get("image_url"):
+                        bp["image_url"] = it["image_url"]
+                    if it.get("media_asset_id") and not bp.get("media_asset_id"):
+                        bp["media_asset_id"] = it["media_asset_id"]
+                    page_blocks.append(bp)
+                # Collect all titles for a combined page title
+                page_title = next(
+                    (it["title"] for it in group_items if it["title"] and not it["title"].startswith("Block ")),
+                    primary["title"]
+                )
+                merged_item = {
+                    **primary,
+                    "title": page_title,
+                    "position": group_items[0]["position"],
+                    "payload": {
+                        **primary["payload"],
+                        "blocks": page_blocks,
+                        "is_page_group": True,
+                    },
+                }
+                items_payload.append(merged_item)
     else:
         # Legacy fallback
         items_payload = []

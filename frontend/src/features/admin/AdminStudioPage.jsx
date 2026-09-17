@@ -1072,6 +1072,8 @@ export const AdminStudioPage = () => {
                     newBlock = {
                         id: generateUUID(),
                         order_index: currentCount,
+                        page_id: blockInput.page_id || blockInput.section_id || null,
+                        section_id: blockInput.page_id || blockInput.section_id || null,
                         content_type: cType,
                         type: cType,
                         activity_type: blockInput.activity_type || 'OBSERVE',
