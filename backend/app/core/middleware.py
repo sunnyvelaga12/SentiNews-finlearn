@@ -50,6 +50,10 @@ class SessionAuthorizationMiddleware(BaseHTTPMiddleware):
         if request.method == "OPTIONS":
             return await call_next(request)
 
+        # Allow public media resolution without authorization
+        if "/learning/media/" in path and request.method == "GET":
+            return await call_next(request)
+
         from starlette.responses import JSONResponse
         from app.core.database import AsyncSessionLocal
         from app.security.authorization import (
