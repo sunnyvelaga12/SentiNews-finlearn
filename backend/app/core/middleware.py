@@ -46,6 +46,10 @@ class SessionAuthorizationMiddleware(BaseHTTPMiddleware):
         if not path.startswith("/api/v1/learning"):
             return await call_next(request)
 
+        # Allow CORS preflight (OPTIONS) requests to pass through to CORSMiddleware
+        if request.method == "OPTIONS":
+            return await call_next(request)
+
         from starlette.responses import JSONResponse
         from app.core.database import AsyncSessionLocal
         from app.security.authorization import (
