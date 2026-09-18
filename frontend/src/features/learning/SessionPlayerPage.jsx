@@ -66,6 +66,53 @@ export const SessionPlayerPage = () => {
     const [isLessonCompleted, setIsLessonCompleted] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState(null);
+    // Defensive normalization: guarantee multi-block page grouping even if server serves un-grouped items
+    const normalizeSessionItems = (rawItems = []) => {
+        if (!rawItems || rawItems.length === 0) return [];
+        if (rawItems.some(it => it.payload?.is_page_group)) return rawItems;
+
+        const hasPageIds = rawItems.some(it => it.page_id || it.section_id || it.payload?.page_id || it.payload?.section_id);
+        if (!hasPageIds) return rawItems;
+
+        const pageGroups = new Map();
+        rawItems.forEach((item, idx) => {
+            const pid = item.page_id || item.section_id || item.payload?.page_id || item.payload?.section_id || null;
+            const key = pid ? String(pid).trim() : `__solo_${item.session_item_id || idx}`;
+            if (!pageGroups.has(key)) pageGroups.set(key, []);
+            pageGroups.get(key).push(item);
+        });
+
+        const normalized = [];
+        pageGroups.forEach((groupItems) => {
+            if (groupItems.length === 1) {
+                normalized.push(groupItems[0]);
+            } else {
+                const primary = groupItems.find(it => it.is_interactive) || groupItems[0];
+                const pageBlocks = groupItems.map(it => ({
+                    ...(it.payload || {}),
+                    content_type: it.content_type || it.payload?.content_type || it.renderer || 'TEXT',
+                    renderer: it.renderer || it.payload?.renderer || it.content_type || 'TEXT',
+                    title: it.title || it.payload?.title,
+                    activity_type: it.activity_type || it.payload?.activity_type,
+                    image_url: it.image_url || it.payload?.image_url,
+                    media_asset_id: it.media_asset_id || it.payload?.media_asset_id,
+                }));
+                const pageTitle = groupItems.find(it => it.title && !it.title.startsWith('Block '))?.title || primary.title;
+                normalized.push({
+                    ...primary,
+                    title: pageTitle,
+                    position: groupItems[0].position,
+                    payload: {
+                        ...(primary.payload || {}),
+                        blocks: pageBlocks,
+                        is_page_group: true,
+                    },
+                });
+            }
+        });
+        return normalized;
+    };
+
     // 1. Fetch Session Items from PostgreSQL Backend
     useEffect(() => {
         let isMounted = true;
@@ -97,9 +144,9 @@ export const SessionPlayerPage = () => {
                             ...card.payload,
                         },
                     }));
-                    setItems(mappedItems);
+                    setItems(normalizeSessionItems(mappedItems));
                 } else if (location.state?.items && location.state.items.length > 0 && items.length === 0) {
-                    setItems(location.state.items);
+                    setItems(normalizeSessionItems(location.state.items));
                 }
 
                 if (location.state?.sessionId) setActiveSessionId(location.state.sessionId);
@@ -130,18 +177,19 @@ export const SessionPlayerPage = () => {
                 const res = await apiClient(`/api/v1/learning/sessions/${currentSessId}`);
                 if (isMounted) {
                     if (res.items && res.items.length > 0) {
-                        setItems(res.items);
+                        const normalizedItems = normalizeSessionItems(res.items);
+                        setItems(normalizedItems);
                         const targetId = currentSessId || res.lesson_slug;
                         const urlStep = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('step') : null;
                         const localStep = typeof window !== 'undefined' && targetId ? localStorage.getItem(`sentinews_step_${targetId}`) : null;
                         let initIdx = 0;
                         if (urlStep !== null) {
                             const p = parseInt(urlStep, 10) - 1;
-                            if (!isNaN(p) && p >= 0 && p < res.items.length) initIdx = p;
+                            if (!isNaN(p) && p >= 0 && p < normalizedItems.length) initIdx = p;
                         } else if (localStep !== null) {
                             const p = parseInt(localStep, 10);
-                            if (!isNaN(p) && p >= 0 && p < res.items.length) initIdx = p;
-                        } else if (res.resume_position && res.resume_position > 1 && res.resume_position <= res.items.length) {
+                            if (!isNaN(p) && p >= 0 && p < normalizedItems.length) initIdx = p;
+                        } else if (res.resume_position && res.resume_position > 1 && res.resume_position <= normalizedItems.length) {
                             initIdx = res.resume_position - 1;
                         }
                         setCurrentIdx(initIdx);
