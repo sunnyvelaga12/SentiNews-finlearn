@@ -176,6 +176,7 @@ class StoredBlock(BaseModel):
     prompt: Optional[str] = None
     correct_option_id: Optional[str] = None
     correct_option_ids: Optional[List[str]] = None
+    step_title: Optional[str] = Field(None, description="Optional custom step title displayed on the learner screen")
 
     @model_validator(mode="after")
     def validate_discriminators(self):
@@ -283,6 +284,7 @@ class LearnerBlock(BaseModel):
     correct_option_id: Optional[str] = None
     correct_option_ids: Optional[List[str]] = None
     is_interactive: bool = False
+    step_title: Optional[str] = None
 
 
 class LearnerBlockSerializer:
@@ -335,6 +337,12 @@ class LearnerBlockSerializer:
             data["prompt"] = data["content"]["prompt"]
         if not data.get("title") and (data.get("content") or {}).get("title"):
             data["title"] = data["content"]["title"]
+        if not data.get("step_title") and (data.get("content") or {}).get("step_title"):
+            data["step_title"] = data["content"]["step_title"]
+        if not data.get("page_id") and (data.get("content") or {}).get("page_id"):
+            data["page_id"] = data["content"]["page_id"]
+        if not data.get("section_id") and (data.get("content") or {}).get("section_id"):
+            data["section_id"] = data["content"]["section_id"]
         return data
 
     @staticmethod

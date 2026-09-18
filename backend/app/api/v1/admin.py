@@ -440,14 +440,28 @@ async def preview_lesson_draft(
         except KeyError:
             ev_role = EvidenceRole.NONE
 
+        b_page_id = b.get("page_id") or b.get("section_id")
+        b_section_id = b.get("section_id") or b.get("page_id")
+        b_step_title = b.get("step_title")
+        card_payload = dict(b.get("payload") or b.get("content") or {})
+        if b_page_id and "page_id" not in card_payload:
+            card_payload["page_id"] = b_page_id
+        if b_section_id and "section_id" not in card_payload:
+            card_payload["section_id"] = b_section_id
+        if b_step_title and "step_title" not in card_payload:
+            card_payload["step_title"] = b_step_title
+
         safe_cards.append(SafeActivityCard(
             id=card_id,
+            page_id=b_page_id,
+            section_id=b_section_id,
+            step_title=b_step_title,
             activity_type=act_type,
             renderer=renderer,
             evidence_role=ev_role,
             title=b.get("title", f"Step {idx+1}"),
             prompt=b.get("prompt"),
-            payload=b.get("payload") or b.get("content") or {},
+            payload=card_payload,
             options=[{
                 "id": str(o.get("id")),
                 "text": str(o.get("text") or o.get("label") or ""),

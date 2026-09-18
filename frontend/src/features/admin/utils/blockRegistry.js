@@ -577,3 +577,189 @@ export function groupBlocksIntoPages(blocks = []) {
 
   return pages;
 }
+
+/**
+ * Creates a new empty step with its own generated page_id and a default block.
+ */
+export function createEmptyStep(blocks = [], preferredType = 'TEXT', customProps = {}) {
+  const newPageId = generatePageId();
+  const orderIndex = blocks.length;
+  const newBlock = createBlock(preferredType, orderIndex, {
+    page_id: newPageId,
+    section_id: newPageId,
+    ...customProps,
+  });
+  return {
+    newPageId,
+    newBlock,
+    nextBlocks: [...blocks, newBlock],
+  };
+}
+
+/**
+ * Reorders entire steps (and all blocks inside them) from one step position to another.
+ */
+export function reorderSteps(blocks = [], fromStepIndex, toStepIndex) {
+  const pages = groupBlocksIntoPages(blocks);
+  if (
+    fromStepIndex < 0 ||
+    fromStepIndex >= pages.length ||
+    toStepIndex < 0 ||
+    toStepIndex >= pages.length ||
+    fromStepIndex === toStepIndex
+  ) {
+    return blocks;
+  }
+
+  const nextPages = [...pages];
+  const [movedPage] = nextPages.splice(fromStepIndex, 1);
+  nextPages.splice(toStepIndex, 0, movedPage);
+
+  const flattened = [];
+  nextPages.forEach((page) => {
+    const effectivePid = page.pageId || page.pageKey || generatePageId();
+    page.blocks.forEach((block) => {
+      flattened.push({
+        ...block,
+        page_id: effectivePid,
+        section_id: effectivePid,
+        order_index: flattened.length,
+      });
+    });
+  });
+
+  return flattened;
+}
+
+/**
+ * Deletes an entire step and all of its constituent blocks.
+ * If all steps are deleted, initializes a single default text step.
+ */
+export function deleteStep(blocks = [], stepIndex) {
+  const pages = groupBlocksIntoPages(blocks);
+  if (stepIndex < 0 || stepIndex >= pages.length) {
+    return blocks;
+  }
+
+  const nextPages = pages.filter((_, idx) => idx !== stepIndex);
+  if (nextPages.length === 0) {
+    const { nextBlocks } = createEmptyStep([], 'TEXT', {
+      title: 'Step 1: Introduction',
+      content: { text: '' },
+    });
+    return nextBlocks;
+  }
+
+  const flattened = [];
+  nextPages.forEach((page) => {
+    const effectivePid = page.pageId || page.pageKey || generatePageId();
+    page.blocks.forEach((block) => {
+      flattened.push({
+        ...block,
+        page_id: effectivePid,
+        section_id: effectivePid,
+        order_index: flattened.length,
+      });
+    });
+  });
+
+  return flattened;
+}
+
+/**
+ * Duplicates an entire step and its blocks, assigning a new page_id and fresh UUIDs.
+ */
+export function duplicateStep(blocks = [], stepIndex) {
+  const pages = groupBlocksIntoPages(blocks);
+  if (stepIndex < 0 || stepIndex >= pages.length) {
+    return blocks;
+  }
+
+  const targetPage = pages[stepIndex];
+  const newPageId = generatePageId();
+
+  const clonedBlocks = targetPage.blocks.map((block) => {
+    const cloned = JSON.parse(JSON.stringify(block));
+    cloned.id = generateUUID();
+    cloned.page_id = newPageId;
+    cloned.section_id = newPageId;
+    if (cloned.title) {
+      cloned.title = `${cloned.title} (Copy)`;
+    }
+    if (Array.isArray(cloned.options) && cloned.options.length > 0) {
+      const oldToNew = new Map();
+      cloned.options = cloned.options.map((opt) => {
+        const newId = generateUUID();
+        oldToNew.set(opt.id, newId);
+        return { ...opt, id: newId };
+      });
+      const oldCorrect = cloned.evaluation?.correct_option_id || cloned.correct_option_id;
+      const newCorrect = oldToNew.get(oldCorrect) || cloned.options[0]?.id;
+      if (cloned.evaluation) cloned.evaluation.correct_option_id = newCorrect;
+      cloned.correct_option_id = newCorrect;
+    }
+    return cloned;
+  });
+
+  const nextPages = [...pages];
+  nextPages.splice(stepIndex + 1, 0, {
+    pageId: newPageId,
+    pageKey: newPageId,
+    blocks: clonedBlocks,
+  });
+
+  const flattened = [];
+  nextPages.forEach((page) => {
+    const effectivePid = page.pageId || page.pageKey || generatePageId();
+    page.blocks.forEach((block) => {
+      flattened.push({
+        ...block,
+        page_id: effectivePid,
+        section_id: effectivePid,
+        order_index: flattened.length,
+      });
+    });
+  });
+
+  return flattened;
+}
+
+/**
+ * Moves a block from its current step to a target step identified by targetPageId.
+ */
+export function moveBlockToStep(blocks = [], blockIndex, targetPageId) {
+  if (blockIndex < 0 || blockIndex >= blocks.length || !targetPageId) {
+    return blocks;
+  }
+
+  const blockToMove = {
+    ...blocks[blockIndex],
+    page_id: targetPageId,
+    section_id: targetPageId,
+  };
+
+  const withoutBlock = blocks.filter((_, idx) => idx !== blockIndex);
+
+  let lastTargetIdx = -1;
+  withoutBlock.forEach((b, idx) => {
+    const pid = b.page_id || b.section_id;
+    if (pid === targetPageId) {
+      lastTargetIdx = idx;
+    }
+  });
+
+  let nextBlocks;
+  if (lastTargetIdx >= 0) {
+    nextBlocks = [
+      ...withoutBlock.slice(0, lastTargetIdx + 1),
+      blockToMove,
+      ...withoutBlock.slice(lastTargetIdx + 1),
+    ];
+  } else {
+    nextBlocks = [...withoutBlock, blockToMove];
+  }
+
+  nextBlocks.forEach((b, i) => { b.order_index = i; });
+  return nextBlocks;
+}
+

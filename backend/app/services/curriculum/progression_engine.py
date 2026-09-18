@@ -255,9 +255,22 @@ class ProgressionEngine:
                     if b_expl:
                         b_payload["explanation"] = b_expl
 
+                    b_page_id = b.get("page_id") or b.get("section_id")
+                    b_section_id = b.get("section_id") or b.get("page_id")
+                    b_step_title = b.get("step_title")
+                    if b_page_id:
+                        b_payload["page_id"] = b_page_id
+                    if b_section_id:
+                        b_payload["section_id"] = b_section_id
+                    if b_step_title:
+                        b_payload["step_title"] = b_step_title
+
                     safe_cards.append(
                         SafeActivityCard(
                             id=b.get("id", str(uuid.uuid4())),
+                            page_id=b_page_id,
+                            section_id=b_section_id,
+                            step_title=b_step_title,
                             activity_type=InteractionType(b_type),
                             renderer=RendererType(renderer),
                             evidence_role=EvidenceRole(b_role),

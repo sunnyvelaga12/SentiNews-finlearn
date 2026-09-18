@@ -157,6 +157,7 @@ class SessionGeneratorService:
                     for m in m_res.scalars().all():
                         media_url_map[str(m.id)] = m.url
 
+            raw_items = []
             for idx, raw_block in enumerate(sorted_blocks):
                 b_id = str(raw_block.get("id"))
                 resp_type = raw_block.get("response_type")
@@ -212,6 +213,16 @@ class SessionGeneratorService:
                 if raw_content.get("alt_text"):
                     sanitized_payload["alt_text"] = raw_content["alt_text"]
 
+                b_page_id = raw_block.get("page_id") or raw_block.get("section_id")
+                b_section_id = raw_block.get("section_id") or raw_block.get("page_id")
+                b_step_title = raw_block.get("step_title")
+                if b_page_id:
+                    sanitized_payload["page_id"] = b_page_id
+                if b_section_id:
+                    sanitized_payload["section_id"] = b_section_id
+                if b_step_title:
+                    sanitized_payload["step_title"] = b_step_title
+
                 pos = raw_block.get("order_index", idx + 1)
                 title = (
                     raw_block.get("title")
@@ -224,7 +235,7 @@ class SessionGeneratorService:
                 c_type = raw_block.get("content_type") or raw_block.get("renderer") or "TEXT"
                 if is_interactive:
                     item = interactive_items.get(b_id)
-                    items_payload.append({
+                    raw_items.append({
                         "session_item_id": str(item.id) if item else f"item_{b_id}",
                         "activity_id": str(item.activity_id) if item else str(uuid.uuid5(version.id, b_id)),
                         "activity_type": raw_block.get("activity_type") or "PRACTICE",
@@ -244,10 +255,13 @@ class SessionGeneratorService:
                         "selection_reason": item.selection_reason if item else "CURRICULUM_BLOCK",
                         "status": item.status if item else "PENDING",
                         "payload": sanitized_payload,
+                        "page_id": b_page_id,
+                        "section_id": b_section_id,
+                        "step_title": b_step_title,
                     })
                 else:
                     # Pure-content block
-                    items_payload.append({
+                    raw_items.append({
                         "session_item_id": f"content_{b_id}",
                         "activity_id": None,
                         "activity_type": raw_block.get("activity_type") or "EXPERIENCE",
@@ -264,7 +278,69 @@ class SessionGeneratorService:
                         "selection_reason": "LESSON_STREAM",
                         "status": "COMPLETED",
                         "payload": sanitized_payload,
+                        "page_id": b_page_id,
+                        "section_id": b_section_id,
+                        "step_title": b_step_title,
                     })
+
+            # Group items by page_id into multi-block steps
+            from collections import OrderedDict
+            page_groups = OrderedDict()
+            for item in raw_items:
+                pid = item.get("page_id") or item.get("section_id")
+                if pid:
+                    if pid not in page_groups:
+                        page_groups[pid] = []
+                    page_groups[pid].append(item)
+                else:
+                    page_groups[f"__solo_{item['session_item_id']}"] = [item]
+
+            items_payload = []
+            for page_id_key, group_items in page_groups.items():
+                if len(group_items) == 1:
+                    solo = group_items[0]
+                    if solo.get("step_title"):
+                        solo["title"] = solo["step_title"]
+                    items_payload.append(solo)
+                else:
+                    primary = next((it for it in group_items if it["is_interactive"]), group_items[0])
+                    page_blocks = []
+                    for it in group_items:
+                        bp = dict(it["payload"])
+                        bp["content_type"] = it.get("content_type") or bp.get("content_type")
+                        bp["renderer"] = it.get("renderer") or bp.get("renderer") or bp.get("content_type")
+                        bp["title"] = it.get("title") or bp.get("title")
+                        bp["activity_type"] = it.get("activity_type") or bp.get("activity_type")
+                        if it.get("image_url") and not bp.get("image_url"):
+                            bp["image_url"] = it["image_url"]
+                        if it.get("media_asset_id") and not bp.get("media_asset_id"):
+                            bp["media_asset_id"] = it["media_asset_id"]
+                        page_blocks.append(bp)
+
+                    page_title = next(
+                        (it.get("step_title") for it in group_items if it.get("step_title")),
+                        None
+                    ) or next(
+                        (it["title"] for it in group_items if it["title"] and not it["title"].startswith("Block ")),
+                        primary["title"]
+                    )
+                    effective_pid = None if page_id_key.startswith("__solo_") else page_id_key
+                    merged_item = {
+                        **primary,
+                        "page_id": effective_pid,
+                        "section_id": effective_pid,
+                        "step_title": page_title,
+                        "title": page_title,
+                        "position": group_items[0]["position"],
+                        "payload": {
+                            **primary["payload"],
+                            "blocks": page_blocks,
+                            "is_page_group": True,
+                            "page_id": effective_pid,
+                            "step_title": page_title,
+                        }
+                    }
+                    items_payload.append(merged_item)
 
             await db.commit()
             return session, items_payload

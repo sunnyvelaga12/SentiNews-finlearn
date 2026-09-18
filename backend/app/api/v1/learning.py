@@ -218,6 +218,13 @@ async def get_session(
             c_type = raw_block.get("content_type") or raw_block.get("renderer") or "TEXT"
             page_id = raw_block.get("page_id") or raw_block.get("section_id") or None
 
+            b_step_title = raw_block.get("step_title")
+            if page_id:
+                sanitized_payload["page_id"] = page_id
+                sanitized_payload["section_id"] = page_id
+            if b_step_title:
+                sanitized_payload["step_title"] = b_step_title
+
             if is_interactive:
                 expected_act_id = uuid.uuid5(version.id, b_id)
                 item = items_by_act.get(expected_act_id)
@@ -241,7 +248,9 @@ async def get_session(
                     "selection_reason": item.selection_reason if item else "CURRICULUM_BLOCK",
                     "status": item.status if item else "PENDING",
                     "payload": sanitized_payload,
-                    "_page_id": page_id,
+                    "page_id": page_id,
+                    "section_id": page_id,
+                    "step_title": b_step_title,
                 })
             else:
                 # Pure-content block
@@ -262,7 +271,9 @@ async def get_session(
                     "selection_reason": "LESSON_STREAM",
                     "status": "COMPLETED",
                     "payload": sanitized_payload,
-                    "_page_id": page_id,
+                    "page_id": page_id,
+                    "section_id": page_id,
+                    "step_title": b_step_title,
                 })
 
         # Group items by page_id into multi-block pages
@@ -270,7 +281,7 @@ async def get_session(
         from collections import OrderedDict
         page_groups = OrderedDict()
         for item in raw_items:
-            pid = item.pop("_page_id", None)
+            pid = item.get("page_id") or item.get("section_id")
             if pid:
                 if pid not in page_groups:
                     page_groups[pid] = []
@@ -281,8 +292,10 @@ async def get_session(
 
         for page_id_key, group_items in page_groups.items():
             if len(group_items) == 1:
-                # Single block — pass through as-is
-                items_payload.append(group_items[0])
+                solo = group_items[0]
+                if solo.get("step_title"):
+                    solo["title"] = solo["step_title"]
+                items_payload.append(solo)
             else:
                 # Multi-block page: merge into one step
                 # Use the interactive block as the primary item (if any), otherwise first block
@@ -300,19 +313,28 @@ async def get_session(
                     if it.get("media_asset_id") and not bp.get("media_asset_id"):
                         bp["media_asset_id"] = it["media_asset_id"]
                     page_blocks.append(bp)
-                # Collect all titles for a combined page title
+                # Collect all titles for a combined page title (prefer custom step_title)
                 page_title = next(
+                    (it.get("step_title") for it in group_items if it.get("step_title")),
+                    None
+                ) or next(
                     (it["title"] for it in group_items if it["title"] and not it["title"].startswith("Block ")),
                     primary["title"]
                 )
+                effective_pid = None if page_id_key.startswith("__solo_") else page_id_key
                 merged_item = {
                     **primary,
+                    "page_id": effective_pid,
+                    "section_id": effective_pid,
+                    "step_title": page_title,
                     "title": page_title,
                     "position": group_items[0]["position"],
                     "payload": {
                         **primary["payload"],
                         "blocks": page_blocks,
                         "is_page_group": True,
+                        "page_id": effective_pid,
+                        "step_title": page_title,
                     },
                 }
                 items_payload.append(merged_item)

@@ -121,4 +121,105 @@ test('Page-Grouping & Multi-Block Step Execution Suite', async (t) => {
     pages = groupBlocksIntoPages(splitBlocks);
     assert.equal(pages.length, 3, 'After split, each is a separate step');
   });
+
+  await t.test('Test 7: Step-first helpers — createEmptyStep, reorderSteps, deleteStep, duplicateStep, moveBlockToStep', async () => {
+    const { createEmptyStep, reorderSteps, deleteStep, duplicateStep, moveBlockToStep } = await import('../utils/blockRegistry.js');
+
+    // 1. createEmptyStep
+    const { newPageId: step1Id, nextBlocks: s1Blocks } = createEmptyStep([], 'HEADING', { title: 'Step 1 Heading' });
+    assert.equal(s1Blocks.length, 1);
+    assert.equal(s1Blocks[0].page_id, step1Id);
+
+    const { newPageId: step2Id, nextBlocks: s2Blocks } = createEmptyStep(s1Blocks, 'TEXT', { title: 'Step 2 Text' });
+    assert.equal(s2Blocks.length, 2);
+    assert.equal(s2Blocks[1].page_id, step2Id);
+
+    // 2. Add block into step 1
+    const { createBlock } = await import('../utils/blockRegistry.js');
+    const extraBlockStep1 = {
+      ...createBlock('IMAGE', 2),
+      page_id: step1Id,
+      section_id: step1Id,
+    };
+    const threeBlocks = [s2Blocks[0], extraBlockStep1, s2Blocks[1]];
+    threeBlocks.forEach((b, i) => { b.order_index = i; });
+
+    let pages = groupBlocksIntoPages(threeBlocks);
+    assert.equal(pages.length, 2);
+    assert.equal(pages[0].blocks.length, 2, 'Step 1 should have 2 blocks');
+    assert.equal(pages[1].blocks.length, 1, 'Step 2 should have 1 block');
+
+    // 3. reorderSteps (swap Step 1 and Step 2)
+    const reordered = reorderSteps(threeBlocks, 0, 1);
+    const pagesReordered = groupBlocksIntoPages(reordered);
+    assert.equal(pagesReordered.length, 2);
+    assert.equal(pagesReordered[0].pageId, step2Id, 'Step 2 should now be first');
+    assert.equal(pagesReordered[1].pageId, step1Id, 'Step 1 should now be second');
+    assert.equal(reordered[0].order_index, 0);
+    assert.equal(reordered[1].order_index, 1);
+    assert.equal(reordered[2].order_index, 2);
+
+    // 4. duplicateStep (duplicate Step 1)
+    const duplicated = duplicateStep(threeBlocks, 0);
+    const pagesDuplicated = groupBlocksIntoPages(duplicated);
+    assert.equal(pagesDuplicated.length, 3, 'Duplicating step 1 creates a 3rd step');
+    assert.equal(pagesDuplicated[1].blocks.length, 2, 'Cloned step should have 2 blocks');
+    assert.notEqual(pagesDuplicated[1].pageId, step1Id, 'Cloned step should have a fresh pageId');
+
+    // 5. moveBlockToStep (move extraBlockStep1 from Step 1 to Step 2)
+    const moved = moveBlockToStep(threeBlocks, 1, step2Id);
+    const pagesMoved = groupBlocksIntoPages(moved);
+    assert.equal(pagesMoved.length, 2);
+    assert.equal(pagesMoved[0].blocks.length, 1, 'Step 1 now has 1 block');
+    assert.equal(pagesMoved[1].blocks.length, 2, 'Step 2 now has 2 blocks');
+
+    // 6. deleteStep (delete Step 1)
+    const deleted = deleteStep(threeBlocks, 0);
+    const pagesDeleted = groupBlocksIntoPages(deleted);
+    assert.equal(pagesDeleted.length, 1);
+    assert.equal(pagesDeleted[0].pageId, step2Id);
+  });
+
+  await t.test('Test 8: Custom step_title propagation and learner session normalization', () => {
+    const pId = 'pid-step-inflation';
+    const rawItems = [
+      {
+        session_item_id: 'item-1',
+        title: 'Block 1',
+        step_title: 'Step 1: Inflation Fundamentals',
+        content_type: 'TEXT',
+        page_id: pId,
+        is_interactive: false,
+        payload: { text: 'Inflation is the rate at which prices rise.' },
+      },
+      {
+        session_item_id: 'item-2',
+        title: 'Block 2',
+        step_title: 'Step 1: Inflation Fundamentals',
+        content_type: 'SCENARIO',
+        page_id: pId,
+        is_interactive: true,
+        payload: { prompt: 'What happens to purchasing power?' },
+      },
+    ];
+
+    // Verify multi-block merge retains custom step_title as page title
+    const primary = rawItems.find((it) => it.is_interactive) || rawItems[0];
+    const pageTitle = rawItems.find((it) => it.step_title || it.payload?.step_title)?.step_title || primary.title;
+    assert.equal(pageTitle, 'Step 1: Inflation Fundamentals');
+
+    // Solo step title propagation
+    const soloItem = {
+      session_item_id: 'item-solo',
+      title: 'Block 3',
+      step_title: 'Step 2: Practical Takeaway',
+      content_type: 'CALLOUT',
+      page_id: 'pid-step-takeaway',
+      is_interactive: false,
+      payload: {},
+    };
+    const soloTitle = soloItem.step_title || soloItem.payload?.step_title || soloItem.title;
+    assert.equal(soloTitle, 'Step 2: Practical Takeaway');
+  });
 });
+

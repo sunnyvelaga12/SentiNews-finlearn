@@ -85,7 +85,16 @@ export const SessionPlayerPage = () => {
         const normalized = [];
         pageGroups.forEach((groupItems) => {
             if (groupItems.length === 1) {
-                normalized.push(groupItems[0]);
+                const solo = groupItems[0];
+                const soloStepTitle = solo.step_title || solo.payload?.step_title;
+                if (soloStepTitle) {
+                    normalized.push({
+                        ...solo,
+                        title: soloStepTitle,
+                    });
+                } else {
+                    normalized.push(solo);
+                }
             } else {
                 const primary = groupItems.find(it => it.is_interactive) || groupItems[0];
                 const pageBlocks = groupItems.map(it => ({
@@ -97,7 +106,10 @@ export const SessionPlayerPage = () => {
                     image_url: it.image_url || it.payload?.image_url,
                     media_asset_id: it.media_asset_id || it.payload?.media_asset_id,
                 }));
-                const pageTitle = groupItems.find(it => it.title && !it.title.startsWith('Block '))?.title || primary.title;
+                const pageTitle = groupItems.find(it => it.step_title || it.payload?.step_title)?.step_title ||
+                                  groupItems.find(it => it.step_title || it.payload?.step_title)?.payload?.step_title ||
+                                  groupItems.find(it => it.title && !it.title.startsWith('Block '))?.title ||
+                                  primary.title;
                 normalized.push({
                     ...primary,
                     title: pageTitle,
@@ -106,6 +118,7 @@ export const SessionPlayerPage = () => {
                         ...(primary.payload || {}),
                         blocks: pageBlocks,
                         is_page_group: true,
+                        step_title: pageTitle,
                     },
                 });
             }

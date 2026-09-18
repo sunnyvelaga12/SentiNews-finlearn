@@ -34,6 +34,7 @@ import {
   PenLine,
   Compass,
   LayoutList,
+  ChevronRight,
 } from 'lucide-react';
 import { MediaLibraryModal } from './MediaLibraryModal';
 import { useMediaAsset, cacheMediaAsset } from '../utils/mediaResolver';
@@ -44,6 +45,12 @@ import {
   generateUUID,
   groupBlocksIntoPages,
   generatePageId,
+  createEmptyStep,
+  reorderSteps,
+  deleteStep,
+  duplicateStep,
+  moveBlockToStep,
+  createBlock,
 } from '../utils/blockRegistry';
 
 /**
@@ -149,6 +156,160 @@ export const PedagogicalCanvas = ({
     });
     return infoMap;
   }, [pages]);
+
+  // ── Step Collapse State ──────────────────────────────────────────────────
+  const [collapsedSteps, setCollapsedSteps] = useState(new Set());
+  const toggleCollapseStep = (stepKey) => {
+    setCollapsedSteps((prev) => {
+      const next = new Set(prev);
+      if (next.has(stepKey)) {
+        next.delete(stepKey);
+      } else {
+        next.add(stepKey);
+      }
+      return next;
+    });
+  };
+
+  // ── Step Title Helper & Getter ───────────────────────────────────────────
+  const getStepTitle = (page) => {
+    const withStepTitle = page.blocks.find((b) => b.step_title);
+    if (withStepTitle?.step_title) return withStepTitle.step_title;
+
+    const firstBlock = page.blocks[0];
+    if (firstBlock && (firstBlock.content_type || firstBlock.type) === 'HEADING') {
+      const headingText = firstBlock.content?.title || firstBlock.content?.text || firstBlock.title;
+      if (headingText && headingText !== 'Section Heading') return headingText;
+    }
+
+    if (firstBlock?.title && firstBlock.title !== 'Section Heading' && !firstBlock.title.startsWith('New ')) {
+      return firstBlock.title;
+    }
+
+    return '';
+  };
+
+  const handleUpdateStepTitle = (pIdx, newTitle) => {
+    const page = pages[pIdx];
+    if (!page || page.blockIndices.length === 0) return;
+
+    const nextBlocks = blocks.map((b, idx) => {
+      if (page.blockIndices.includes(idx)) {
+        const isFirst = idx === page.blockIndices[0];
+        const isHeading = (b.content_type || b.type) === 'HEADING';
+        return {
+          ...b,
+          step_title: newTitle,
+          ...(isFirst && isHeading ? {
+            title: newTitle,
+            content: { ...(b.content || {}), title: newTitle, text: newTitle },
+          } : {}),
+        };
+      }
+      return b;
+    });
+
+    if (onReorderBlocks) {
+      onReorderBlocks(nextBlocks);
+    }
+  };
+
+  // ── Step-Level Operations ────────────────────────────────────────────────
+  const handleAddStep = (preferredType = 'TEXT') => {
+    const defaultTitle = `Step ${pages.length + 1}: Concept`;
+    const { nextBlocks } = createEmptyStep(blocks, preferredType, {
+      title: defaultTitle,
+      step_title: defaultTitle,
+    });
+    if (onReorderBlocks) {
+      onReorderBlocks(nextBlocks);
+    }
+    onSelectBlock(nextBlocks.length - 1);
+  };
+
+  const handleDeleteStep = (pIdx) => {
+    const page = pages[pIdx];
+    const blockCount = page ? page.blocks.length : 0;
+    if (blockCount > 1) {
+      if (!window.confirm(`Delete Step ${pIdx + 1} and its ${blockCount} blocks?`)) {
+        return;
+      }
+    }
+    const nextBlocks = deleteStep(blocks, pIdx);
+    if (onReorderBlocks) {
+      onReorderBlocks(nextBlocks);
+    }
+    onSelectBlock(Math.max(0, Math.min(activeBlockIndex, nextBlocks.length - 1)));
+  };
+
+  const handleMoveStep = (pIdx, direction) => {
+    const targetIdx = direction === 'UP' ? pIdx - 1 : pIdx + 1;
+    if (targetIdx < 0 || targetIdx >= pages.length) return;
+    const nextBlocks = reorderSteps(blocks, pIdx, targetIdx);
+    if (onReorderBlocks) {
+      onReorderBlocks(nextBlocks);
+    }
+  };
+
+  const handleDuplicateStep = (pIdx) => {
+    const nextBlocks = duplicateStep(blocks, pIdx);
+    if (onReorderBlocks) {
+      onReorderBlocks(nextBlocks);
+    }
+  };
+
+  const handleMoveBlockToStep = (globalIdx, targetPageId) => {
+    const nextBlocks = moveBlockToStep(blocks, globalIdx, targetPageId);
+    if (onReorderBlocks) {
+      onReorderBlocks(nextBlocks);
+    }
+  };
+
+  const handleAddBlockToStep = (targetPageId, blockType = 'TEXT') => {
+    const page = pages.find((p) => (p.pageId || p.pageKey) === targetPageId);
+    const lastGlobalIdx = page && page.blockIndices.length > 0
+      ? page.blockIndices[page.blockIndices.length - 1]
+      : blocks.length - 1;
+
+    const insertAt = lastGlobalIdx + 1;
+    const effectivePid = (page && page.pageId) ? page.pageId : (targetPageId.startsWith('__solo_') ? generatePageId() : targetPageId);
+
+    let currentBlocks = blocks;
+    if ((!page?.pageId || targetPageId.startsWith('__solo_')) && page) {
+      currentBlocks = blocks.map((b, i) => {
+        if (page.blockIndices.includes(i)) {
+          return { ...b, page_id: effectivePid, section_id: effectivePid };
+        }
+        return b;
+      });
+    }
+
+    const newBlock = createBlock(blockType, insertAt, {
+      page_id: effectivePid,
+      section_id: effectivePid,
+    });
+
+    const nextBlocks = [
+      ...currentBlocks.slice(0, insertAt),
+      newBlock,
+      ...currentBlocks.slice(insertAt),
+    ];
+    nextBlocks.forEach((b, i) => { b.order_index = i; });
+
+    if (onReorderBlocks) {
+      onReorderBlocks(nextBlocks);
+    }
+    onSelectBlock(insertAt);
+  };
+
+  const openPickerForStep = (pageIdOrKey) => {
+    const page = pages.find((p) => (p.pageId || p.pageKey) === pageIdOrKey);
+    const lastGlobalIdx = page && page.blockIndices.length > 0
+      ? page.blockIndices[page.blockIndices.length - 1]
+      : blocks.length - 1;
+    const effectivePid = (page && page.pageId) ? page.pageId : (pageIdOrKey.startsWith('__solo_') ? generatePageId() : pageIdOrKey);
+    openPickerAt(lastGlobalIdx + 1, effectivePid);
+  };
 
   const handleMergeWithPrev = (idx) => {
     if (idx <= 0 || !blocks[idx] || !blocks[idx - 1]) return;
@@ -589,1386 +750,253 @@ export const PedagogicalCanvas = ({
         </div>
       )}
 
-      {/* ── Content Blocks Timeline ── */}
+      {/* ── Steps-First Content Canvas ── */}
       <div className="space-y-4">
         <div className="flex items-center justify-between px-1">
           <div className="flex items-center gap-2">
-            <span className="text-xs font-black tracking-wider uppercase text-slate-500">
-              Content & Interactive Blocks
+            <Layers className="w-4 h-4 text-blue-600" />
+            <span className="text-xs font-black tracking-wider uppercase text-slate-800">
+              Learner Steps
             </span>
-            <span className="text-xs font-bold text-slate-400">({blocks.length} blocks)</span>
+            <span className="text-xs font-bold text-slate-400">
+              ({pages.length} step{pages.length === 1 ? '' : 's'} · {blocks.length} block{blocks.length === 1 ? '' : 's'})
+            </span>
           </div>
           <div className="text-xs text-slate-400">
-            Strict ordering by order_index · Media URLs derived dynamically
+            Each step = one learner screen
           </div>
         </div>
 
-        {/* Empty state when no blocks */}
+        {/* Empty state */}
         {blocks.length === 0 && (
-          <div className="p-8 text-center bg-white rounded-xl border border-dashed border-slate-300 space-y-3">
-            <Type className="w-8 h-8 text-slate-300 mx-auto" />
-            <div className="text-sm font-bold text-slate-700">No content blocks yet</div>
-            <p className="text-xs text-slate-500">
-              Add headings, explanatory text, diagrams, or interactive questions below.
+          <div className="p-10 text-center bg-white rounded-xl border-2 border-dashed border-slate-300 space-y-4">
+            <Layers className="w-10 h-10 text-slate-300 mx-auto" />
+            <div className="text-sm font-bold text-slate-700">No steps yet</div>
+            <p className="text-xs text-slate-500 max-w-sm mx-auto">
+              Create your first step to start building the lesson. Each step becomes one screen the learner sees.
             </p>
+            <button
+              type="button"
+              onClick={() => handleAddStep('HEADING')}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg shadow-sm transition-colors"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Create First Step
+            </button>
           </div>
         )}
 
-        {/* Blocks List */}
-        <div className="space-y-0">
-          {blocks.map((b, idx) => {
-            const isSelected = idx === activeBlockIndex;
-            const cType = b.content_type || b.type || 'TEXT';
-            const isPureContent = ['HEADING', 'TEXT', 'IMAGE', 'CALLOUT', 'ANALOGY', 'TABLE'].includes(cType);
-            const rType = isPureContent ? 'NONE' : (b.response_type || 'NONE');
-            const config = contentTypeConfig[cType] || contentTypeConfig.TEXT;
-            const content = b.content || {};
-            const isDragTarget = dropTargetIdx === idx && draggingIdx !== idx;
-            const isDragging = draggingIdx === idx;
-            const pageInfo = blockPageInfo.get(idx);
+        {/* ── Steps Container ── */}
+        <div className="space-y-3">
+          {pages.map((page, pIdx) => {
+            const stepKey = page.pageKey || page.pageId || `step_${pIdx}`;
+            const isCollapsed = collapsedSteps.has(stepKey);
+            const stepTitle = getStepTitle(page);
+            const hasActiveBlock = page.blockIndices.includes(activeBlockIndex);
 
             return (
-              <React.Fragment key={b.id || idx}>
-                {/* ── Step / Page Group Header (rendered before first block in each page) ── */}
-                {pageInfo?.isFirstInPage && (
-                  <div className="flex items-center justify-between px-4 py-2.5 bg-gradient-to-r from-blue-50/90 via-indigo-50/40 to-slate-50 border border-blue-200/80 rounded-xl mt-6 mb-2 shadow-xs">
-                    <div className="flex items-center gap-2.5 flex-wrap">
-                      <div className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-900 text-white rounded-lg text-xs font-black tracking-wide shadow-xs">
-                        <Layers className="w-3.5 h-3.5 text-blue-400" />
-                        <span>STEP {pageInfo.pageNumber} OF {pages.length}</span>
-                      </div>
-                      {pageInfo.totalInPage > 1 ? (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-100/90 text-blue-800 border border-blue-200">
-                          Multi-Block Page ({pageInfo.totalInPage} blocks rendered together)
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
-                          Single Block Step
-                        </span>
-                      )}
-                      {pageInfo.page.isInteractive && (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
-                          Interactive Assessment
-                        </span>
-                      )}
+              <div
+                key={stepKey}
+                className={`rounded-xl border-2 transition-all duration-200 ${
+                  hasActiveBlock
+                    ? 'border-blue-400 ring-2 ring-blue-500/15 shadow-md'
+                    : 'border-slate-200 hover:border-slate-300 shadow-sm'
+                }`}
+              >
+                {/* ── Step Header ── */}
+                <div
+                  className={`flex items-center gap-3 px-4 py-3 cursor-pointer select-none transition-colors ${
+                    hasActiveBlock
+                      ? 'bg-gradient-to-r from-blue-50 via-indigo-50/40 to-white'
+                      : 'bg-gradient-to-r from-slate-50 via-white to-white hover:from-slate-100'
+                  }`}
+                  onClick={() => {
+                    if (page.blockIndices.length > 0) {
+                      onSelectBlock(page.blockIndices[0]);
+                    }
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); toggleCollapseStep(stepKey); }}
+                    className="p-1 rounded-lg hover:bg-white/80 text-slate-400 hover:text-slate-700 transition-colors"
+                    title={isCollapsed ? 'Expand step' : 'Collapse step'}
+                  >
+                    <ChevronRight className={`w-4 h-4 transition-transform duration-200 ${isCollapsed ? '' : 'rotate-90'}`} />
+                  </button>
+
+                  <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-black tracking-wide shadow-xs shrink-0 ${
+                    hasActiveBlock ? 'bg-blue-600 text-white' : 'bg-slate-800 text-white'
+                  }`}>
+                    <Layers className="w-3.5 h-3.5" />
+                    <span>STEP {pIdx + 1}</span>
+                  </div>
+
+                  <input
+                    type="text"
+                    value={stepTitle}
+                    onChange={(e) => handleUpdateStepTitle(pIdx, e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                    placeholder={`Step ${pIdx + 1} title...`}
+                    className="flex-1 text-sm font-bold text-slate-800 bg-transparent border-b border-transparent hover:border-slate-300 focus:border-blue-500 focus:outline-none placeholder:text-slate-300 min-w-0"
+                  />
+
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="text-[10px] font-bold text-slate-400 px-2 py-0.5 bg-slate-100 rounded-full">
+                      {page.blocks.length} block{page.blocks.length === 1 ? '' : 's'}
+                    </span>
+                    {page.isInteractive && (
+                      <span className="text-[10px] font-bold text-emerald-700 px-2 py-0.5 bg-emerald-50 border border-emerald-200 rounded-full flex items-center gap-1">
+                        <Zap className="w-2.5 h-2.5" />
+                        Interactive
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-0.5 shrink-0 ml-1">
+                    <button type="button" onClick={(e) => { e.stopPropagation(); handleMoveStep(pIdx, 'UP'); }} disabled={pIdx === 0} title="Move Step Up" className="p-1 rounded hover:bg-slate-200 text-slate-400 hover:text-slate-700 disabled:opacity-20 transition-colors"><ChevronUp className="w-3.5 h-3.5" /></button>
+                    <button type="button" onClick={(e) => { e.stopPropagation(); handleMoveStep(pIdx, 'DOWN'); }} disabled={pIdx === pages.length - 1} title="Move Step Down" className="p-1 rounded hover:bg-slate-200 text-slate-400 hover:text-slate-700 disabled:opacity-20 transition-colors"><ChevronDown className="w-3.5 h-3.5" /></button>
+                    <button type="button" onClick={(e) => { e.stopPropagation(); handleDuplicateStep(pIdx); }} title="Duplicate Step" className="p-1 rounded hover:bg-slate-200 text-slate-400 hover:text-slate-700 transition-colors"><Copy className="w-3.5 h-3.5" /></button>
+                    {onPreviewStep && (<button type="button" onClick={(e) => { e.stopPropagation(); onPreviewStep(page.blockIndices[0] ?? 0); }} title="Preview this step" className="p-1 rounded hover:bg-blue-100 text-slate-400 hover:text-blue-600 transition-colors"><Play className="w-3.5 h-3.5" /></button>)}
+                    <button type="button" onClick={(e) => { e.stopPropagation(); handleDeleteStep(pIdx); }} title="Delete Step" className="p-1 rounded hover:bg-rose-50 text-slate-400 hover:text-rose-600 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
+                  </div>
+                </div>
+
+                {/* ── Collapsible Step Body ── */}
+                {!isCollapsed && (
+                  <div className="border-t border-slate-100 bg-white/50 rounded-b-xl">
+                    <div className="p-3 space-y-0">
+                      {page.blocks.map((b, bInPageIdx) => {
+                        const globalIdx = page.blockIndices[bInPageIdx];
+                        const isSelected = globalIdx === activeBlockIndex;
+                        const cType = b.content_type || b.type || 'TEXT';
+                        const isPureContent = ['HEADING', 'TEXT', 'IMAGE', 'CALLOUT', 'ANALOGY', 'TABLE'].includes(cType);
+                        const rType = isPureContent ? 'NONE' : (b.response_type || 'NONE');
+                        const config = contentTypeConfig[cType] || contentTypeConfig.TEXT;
+                        const content = b.content || {};
+                        const isDragTarget = dropTargetIdx === globalIdx && draggingIdx !== globalIdx;
+                        const isDragging = draggingIdx === globalIdx;
+
+                        return (
+                          <React.Fragment key={b.id || globalIdx}>
+                            {bInPageIdx > 0 && (
+                              <div className="group/insert relative h-4 flex items-center justify-center -mx-1">
+                                <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-transparent group-hover/insert:border-blue-300 transition-colors" /></div>
+                                <button type="button" onClick={(e) => { e.stopPropagation(); openPickerAt(globalIdx, page.pageId || page.pageKey); }} className="relative z-10 opacity-0 group-hover/insert:opacity-100 transition-all flex items-center gap-1 px-2 py-0.5 bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-bold rounded-full shadow-md"><Plus className="w-2.5 h-2.5" />Insert</button>
+                              </div>
+                            )}
+                            <div
+                              id={`block-card-${globalIdx}`}
+                              draggable
+                              onDragStart={(e) => handleDragStart(e, globalIdx)}
+                              onDragEnter={(e) => handleDragEnter(e, globalIdx)}
+                              onDragLeave={handleDragLeave}
+                              onDragOver={handleDragOver}
+                              onDrop={(e) => handleDrop(e, globalIdx)}
+                              onDragEnd={handleDragEnd}
+                              onClick={() => onSelectBlock(globalIdx)}
+                              className={`relative rounded-xl border transition-all duration-150 ${isSelected ? 'border-blue-500 ring-2 ring-blue-500/20 bg-white shadow-md' : 'border-slate-200 hover:border-slate-300 bg-white shadow-sm'} ${isDragTarget ? 'border-dashed border-blue-400 bg-blue-50/20' : ''} ${isDragging ? 'opacity-40' : ''}`}
+                            >
+                              <div className="p-4 sm:p-5 flex items-start gap-3">
+                                <div className="flex flex-col items-center gap-1 pt-1 select-none text-slate-300">
+                                  <span className="cursor-grab active:cursor-grabbing p-1 hover:text-slate-500" title="Drag to reorder block"><GripVertical className="w-4 h-4" /></span>
+                                  <span className="text-[9px] text-slate-300 font-mono">#{b.order_index ?? globalIdx}</span>
+                                </div>
+                                <div className="space-y-3 flex-1">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <select value={cType} onChange={(e) => { const nextType = e.target.value; const isNextPure = ['HEADING', 'TEXT', 'IMAGE', 'CALLOUT', 'ANALOGY', 'TABLE'].includes(nextType); onUpdateBlock(globalIdx, { ...b, content_type: nextType, type: nextType, ...(isNextPure ? { response_type: 'NONE', evidence_role: 'NONE', options: undefined, evaluation: undefined, correct_option_id: undefined } : {}) }); }} onClick={(e) => e.stopPropagation()} className={`text-[11px] font-bold rounded px-2 py-0.5 border bg-white focus:outline-none focus:border-blue-500 ${config.color}`}>
+                                      <option value="HEADING">HEADING</option><option value="TEXT">TEXT</option><option value="IMAGE">IMAGE</option><option value="CALLOUT">CALLOUT</option><option value="ANALOGY">ANALOGY</option><option value="CANDLESTICK">CANDLESTICK</option><option value="TABLE">TABLE</option><option value="SCENARIO">SCENARIO</option>
+                                    </select>
+                                    {isPureContent ? (<span className="text-[11px] font-bold rounded px-2 py-0.5 border bg-slate-100 text-slate-600 border-slate-200">PURE CONTENT</span>) : (
+                                      <select value={rType} onChange={(e) => { const nextRType = e.target.value; const isInteractive = nextRType !== 'NONE'; const opt1 = generateUUID(); const opt2 = generateUUID(); onUpdateBlock(globalIdx, { ...b, response_type: nextRType, evidence_role: isInteractive && b.evidence_role === 'NONE' ? 'FORMATIVE' : b.evidence_role, options: isInteractive && (!b.options || b.options.length === 0) ? [{ id: opt1, text: 'Option A', is_correct: true }, { id: opt2, text: 'Option B', is_correct: false }] : b.options, evaluation: isInteractive && !b.evaluation ? { correct_option_id: opt1, explanation: 'Explanation for learner feedback.' } : b.evaluation, correct_option_id: isInteractive ? opt1 : undefined }); }} onClick={(e) => e.stopPropagation()} className={`text-[11px] font-bold rounded px-2 py-0.5 border focus:outline-none focus:border-blue-500 ${rType === 'NONE' ? 'bg-slate-100 text-slate-600 border-slate-200' : 'bg-emerald-50 text-emerald-700 border-emerald-300'}`}>
+                                        <option value="NONE">PURE CONTENT (No Evaluation)</option><option value="SINGLE_CHOICE">SINGLE CHOICE MCQ</option><option value="MULTIPLE_CHOICE">MULTIPLE CHOICE</option><option value="IMAGE_SELECTION">IMAGE SELECTION MCQ</option><option value="TRUE_FALSE">TRUE / FALSE</option>
+                                      </select>
+                                    )}
+                                    <select value={b.activity_type || 'EXPERIENCE'} onChange={(e) => onUpdateBlock(globalIdx, { ...b, activity_type: e.target.value })} onClick={(e) => e.stopPropagation()} className="text-[10px] font-bold bg-slate-50 border border-slate-200 text-slate-600 rounded px-1.5 py-0.5 focus:outline-none">
+                                      <option value="OBSERVE">Observe</option><option value="PREDICT">Predict</option><option value="EXPLAIN">Explain</option><option value="PRACTICE">Practice</option><option value="APPLICATION">Application</option><option value="EXPERIENCE">Experience</option><option value="RETRIEVE">Retrieve</option><option value="REFLECT">Reflect</option>
+                                    </select>
+                                    {rType !== 'NONE' && (<select value={b.evidence_role || 'FORMATIVE'} onChange={(e) => onUpdateBlock(globalIdx, { ...b, evidence_role: e.target.value })} onClick={(e) => e.stopPropagation()} className="text-[10px] font-black uppercase tracking-wider bg-blue-50 text-blue-700 border border-blue-200 rounded px-1.5 py-0.5 focus:outline-none"><option value="NONE">Formative Only</option><option value="FORMATIVE">Formative Evidence</option><option value="DIAGNOSTIC">Diagnostic</option><option value="MASTERY_EVIDENCE">Mastery Evidence</option></select>)}
+                                    {pages.length > 1 && (<select value="" onChange={(e) => { if (e.target.value) handleMoveBlockToStep(globalIdx, e.target.value); }} onClick={(e) => e.stopPropagation()} className="text-[10px] font-bold bg-slate-50 border border-slate-200 text-slate-500 rounded px-1.5 py-0.5 focus:outline-none"><option value="">Move to step…</option>{pages.map((p, pi) => { if (pi === pIdx) return null; const pid = p.pageId || p.pageKey; return (<option key={pid} value={pid}>Step {pi + 1}{getStepTitle(p) ? `: ${getStepTitle(p)}` : ''}</option>); })}</select>)}
+                                  </div>
+                                  <input type="text" value={b.title || ''} onChange={(e) => onUpdateBlock(globalIdx, { ...b, title: e.target.value })} placeholder="Block Title (e.g. Overnight Repo Rate Mechanics)" className="w-full text-sm font-bold text-slate-900 bg-transparent border-b border-transparent hover:border-slate-200 focus:border-blue-500 focus:outline-none" />
+
+                                  {cType === 'HEADING' && (<div className="space-y-2 p-3 bg-purple-50/50 rounded-lg border border-purple-100"><div className="flex items-center gap-3"><label className="text-[10px] font-bold text-purple-900 uppercase">Level:</label><select value={content.level || 'H2'} onChange={(e) => onUpdateBlock(globalIdx, { ...b, content: { ...content, level: e.target.value } })} className="text-xs font-bold border border-purple-200 rounded px-2 py-1 bg-white"><option value="H1">H1 — Main Section Header</option><option value="H2">H2 — Sub-concept Header</option><option value="H3">H3 — Deep-dive Sub-point</option></select></div><input type="text" value={content.title || content.text || b.title || ''} onChange={(e) => onUpdateBlock(globalIdx, { ...b, title: e.target.value, content: { ...content, title: e.target.value, text: e.target.value } })} placeholder="Section Heading Text..." className="w-full text-base font-bold bg-white border border-purple-200 rounded p-2 focus:outline-none focus:border-purple-500" /></div>)}
+
+                                  {cType === 'TEXT' && (<div className="space-y-1.5"><textarea value={content.text || content.body || ''} onChange={(e) => onUpdateBlock(globalIdx, { ...b, content: { ...content, text: e.target.value } })} placeholder="Write financial concept text here (Markdown supported)..." rows={4} className="w-full text-sm text-slate-700 bg-white border border-slate-200 rounded-lg p-3 focus:outline-none focus:border-blue-500 resize-y font-mono leading-relaxed" /></div>)}
+
+                                  {cType === 'IMAGE' && (() => { const MediaDisplay = ({ assetId }) => { const { url, status } = useMediaAsset(assetId); if (!assetId) return <span className="text-xs text-slate-400">No image selected</span>; if (status === 'loading') return <span className="text-xs text-slate-400">Loading...</span>; if (!url) return <span className="text-xs text-red-400">Asset not found</span>; return <img src={url} alt={content.alt_text || 'Image'} className="max-h-32 rounded-lg border border-slate-200" />; }; const assetId = b.media_asset_id || content.media_asset_id; return (<div className="space-y-2 p-3 bg-blue-50/30 rounded-lg border border-blue-100"><MediaDisplay assetId={assetId} /><button type="button" onClick={(e) => { e.stopPropagation(); openMediaForBlock(globalIdx); }} className="text-[11px] font-bold text-blue-600 hover:text-blue-800 bg-white border border-blue-200 px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors"><Upload className="w-3 h-3" />{assetId ? 'Change Image' : 'Select from Media Library'}</button><input type="text" value={content.alt_text || ''} onChange={(e) => onUpdateBlock(globalIdx, { ...b, content: { ...content, alt_text: e.target.value } })} placeholder="Alt text" className="w-full text-xs border border-blue-100 rounded px-2 py-1 bg-white focus:outline-none focus:border-blue-400" /><input type="text" value={content.caption || ''} onChange={(e) => onUpdateBlock(globalIdx, { ...b, content: { ...content, caption: e.target.value } })} placeholder="Caption (optional)" className="w-full text-xs border border-blue-100 rounded px-2 py-1 bg-white focus:outline-none focus:border-blue-400" /></div>); })()}
+
+                                  {cType === 'CALLOUT' && (<div className="space-y-2 p-3 bg-amber-50/50 rounded-lg border border-amber-100"><select value={content.callout_type || content.variant || 'TIP'} onChange={(e) => onUpdateBlock(globalIdx, { ...b, content: { ...content, callout_type: e.target.value, variant: e.target.value } })} className="text-xs font-bold border border-amber-200 rounded px-2 py-1 bg-white"><option value="TIP">💡 Tip</option><option value="RULE">📏 Rule</option><option value="WARNING">⚠️ Warning</option><option value="KEY_TAKEAWAY">🔑 Key Takeaway</option></select><textarea value={content.text || ''} onChange={(e) => onUpdateBlock(globalIdx, { ...b, content: { ...content, text: e.target.value } })} placeholder="Callout text..." rows={2} className="w-full text-sm border border-amber-200 rounded p-2 bg-white focus:outline-none focus:border-amber-500" /></div>)}
+
+                                  {cType === 'ANALOGY' && (<div className="space-y-2 p-3 bg-emerald-50/50 rounded-lg border border-emerald-100"><input type="text" value={content.everyday_concept || ''} onChange={(e) => onUpdateBlock(globalIdx, { ...b, content: { ...content, everyday_concept: e.target.value } })} placeholder="Everyday concept (e.g. 'Thermostat')" className="w-full text-sm font-bold border border-emerald-200 rounded p-2 bg-white focus:outline-none focus:border-emerald-500" /><input type="text" value={content.financial_concept || ''} onChange={(e) => onUpdateBlock(globalIdx, { ...b, content: { ...content, financial_concept: e.target.value } })} placeholder="Financial concept (e.g. 'Federal Funds Rate')" className="w-full text-sm font-bold border border-emerald-200 rounded p-2 bg-white focus:outline-none focus:border-emerald-500" /><textarea value={content.mapping || content.text || ''} onChange={(e) => onUpdateBlock(globalIdx, { ...b, content: { ...content, mapping: e.target.value, text: e.target.value } })} placeholder="Explain the analogy..." rows={3} className="w-full text-sm border border-emerald-200 rounded p-2 bg-white focus:outline-none focus:border-emerald-500" /></div>)}
+
+                                  {cType === 'TABLE' && (<div className="space-y-2 p-3 bg-teal-50/50 rounded-lg border border-teal-100"><textarea value={typeof content.data === 'string' ? content.data : JSON.stringify(content.data || content.rows || [], null, 2)} onChange={(e) => { try { const parsed = JSON.parse(e.target.value); onUpdateBlock(globalIdx, { ...b, content: { ...content, data: parsed, rows: parsed } }); } catch { onUpdateBlock(globalIdx, { ...b, content: { ...content, data: e.target.value } }); } }} placeholder='Table data JSON' rows={5} className="w-full text-xs font-mono border border-teal-200 rounded p-2 bg-white focus:outline-none focus:border-teal-500" /></div>)}
+
+                                  {cType === 'CANDLESTICK' && (<div className="space-y-2 p-3 bg-indigo-50/50 rounded-lg border border-indigo-100"><div className="grid grid-cols-2 sm:grid-cols-4 gap-2">{['open', 'high', 'low', 'close'].map((field) => (<div key={field}><label className="text-[10px] font-black uppercase text-indigo-700">{field}</label><input type="number" value={content[field] ?? ''} onChange={(e) => onUpdateBlock(globalIdx, { ...b, content: { ...content, [field]: parseFloat(e.target.value) || 0 } })} className="w-full text-sm font-mono border border-indigo-200 rounded px-2 py-1 bg-white focus:outline-none focus:border-indigo-500" /></div>))}</div><input type="text" value={content.instrument || ''} onChange={(e) => onUpdateBlock(globalIdx, { ...b, content: { ...content, instrument: e.target.value } })} placeholder="Instrument" className="w-full text-xs border border-indigo-200 rounded px-2 py-1 bg-white focus:outline-none focus:border-indigo-500" /></div>)}
+
+                                  {cType === 'SCENARIO' && (
+                                    <div className="space-y-3 p-3 bg-rose-50/40 rounded-lg border border-rose-100">
+                                      <span className="text-[10px] font-bold text-rose-900 uppercase tracking-wider block">Market Dilemma / Challenge Scenario</span>
+                                      <div className="space-y-1">
+                                        <label className="text-[10px] font-bold text-slate-700 uppercase block">Question / Challenge Prompt:</label>
+                                        <textarea rows={2} value={b.prompt ?? content.prompt ?? content.dilemma ?? content.context ?? ''} onChange={(e) => { const val = e.target.value; onUpdateBlock(globalIdx, { ...b, prompt: val, title: b.title && !b.title.startsWith('Block ') ? b.title : val, content: { ...content, prompt: val, dilemma: val } }); }} placeholder="Enter the main question for the learner..." className="w-full text-xs font-semibold bg-white border border-rose-200 rounded p-2 resize-none focus:border-rose-400 focus:outline-none" />
+                                      </div>
+                                      <div className="space-y-1">
+                                        <label className="text-[10px] font-bold text-slate-500 uppercase block">Market Scenario / Context Details (Optional):</label>
+                                        <textarea rows={2} value={content.context || ''} onChange={(e) => onUpdateBlock(globalIdx, { ...b, content: { ...content, context: e.target.value } })} placeholder="Describe market situation or price action..." className="w-full text-xs bg-white border border-rose-200 rounded p-1.5 resize-none focus:outline-none" />
+                                      </div>
+                                      {b.media_asset_id && (
+                                        <div className="flex items-center gap-2 pt-1">
+                                          <span className="text-[10px] text-slate-500 font-mono truncate">Image Asset: {b.media_asset_id}</span>
+                                          <button type="button" onClick={(e) => { e.stopPropagation(); openMediaForBlock(globalIdx); }} className="text-xs font-bold text-blue-600 hover:text-blue-800">Change Image</button>
+                                        </div>
+                                      )}
+                                      {!b.media_asset_id && (
+                                        <button type="button" onClick={(e) => { e.stopPropagation(); openMediaForBlock(globalIdx); }} className="text-[11px] font-bold text-rose-700 hover:text-rose-900 flex items-center gap-1"><Upload className="w-3 h-3" /> Attach Question Image</button>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {rType !== 'NONE' && rType !== 'TRUE_FALSE' && (<div className="space-y-2 p-3 bg-green-50/30 rounded-lg border border-green-100"><div className="text-[10px] font-black uppercase text-green-800 flex items-center gap-1.5"><Zap className="w-3 h-3" /> Answer Options</div>{(b.options || []).map((opt, oIdx) => { const isCorrect = opt.is_correct || (b.evaluation?.correct_option_id === opt.id) || (b.correct_option_id === opt.id); return (<div key={opt.id || oIdx} className="flex items-center gap-2"><button type="button" onClick={(e) => { e.stopPropagation(); const updatedOpts = b.options.map((o) => ({ ...o, is_correct: o.id === opt.id })); onUpdateBlock(globalIdx, { ...b, options: updatedOpts, evaluation: { ...(b.evaluation || {}), correct_option_id: opt.id }, correct_option_id: opt.id }); }} className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${isCorrect ? 'border-green-500 bg-green-500' : 'border-slate-300 bg-white hover:border-green-400'}`}>{isCorrect && <CheckCircle2 className="w-3 h-3 text-white" />}</button><input type="text" value={opt.text || ''} onChange={(e) => { const updatedOpts = b.options.map((o, i2) => i2 === oIdx ? { ...o, text: e.target.value } : o); onUpdateBlock(globalIdx, { ...b, options: updatedOpts }); }} onClick={(e) => e.stopPropagation()} placeholder={`Option ${oIdx + 1}`} className="flex-1 text-sm border border-slate-200 rounded px-2 py-1 bg-white focus:outline-none focus:border-blue-500" />{rType === 'IMAGE_SELECTION' && (<button type="button" onClick={(e) => { e.stopPropagation(); openMediaForOption(globalIdx, oIdx); }} className="text-[10px] text-blue-600 hover:text-blue-800 border border-blue-200 px-2 py-0.5 rounded"><ImageIcon className="w-3 h-3" /></button>)}<button type="button" onClick={(e) => { e.stopPropagation(); const filteredOpts = b.options.filter((_, i2) => i2 !== oIdx); onUpdateBlock(globalIdx, { ...b, options: filteredOpts }); }} className="p-0.5 rounded hover:bg-rose-50 text-slate-300 hover:text-rose-500"><XCircle className="w-3.5 h-3.5" /></button></div>); })}<button type="button" onClick={(e) => { e.stopPropagation(); const newOpt = { id: generateUUID(), text: '', is_correct: false }; onUpdateBlock(globalIdx, { ...b, options: [...(b.options || []), newOpt] }); }} className="text-[11px] font-bold text-green-700 hover:text-green-900 flex items-center gap-1"><Plus className="w-3 h-3" /> Add Option</button><textarea value={b.evaluation?.explanation || ''} onChange={(e) => onUpdateBlock(globalIdx, { ...b, evaluation: { ...(b.evaluation || {}), explanation: e.target.value } })} onClick={(e) => e.stopPropagation()} placeholder="Explanation shown after learner answers..." rows={2} className="w-full text-xs border border-green-200 rounded p-2 bg-white focus:outline-none focus:border-green-500" /></div>)}
+
+                                  {rType === 'TRUE_FALSE' && (<div className="space-y-2 p-3 bg-green-50/30 rounded-lg border border-green-100"><div className="text-[10px] font-black uppercase text-green-800">True / False</div><div className="flex gap-4">{['True', 'False'].map((tfVal, tfIdx) => { const tfOpts = b.options?.length >= 2 ? b.options : [{ id: generateUUID(), text: 'True', is_correct: true }, { id: generateUUID(), text: 'False', is_correct: false }]; const optId = tfOpts[tfIdx]?.id; const isSelected = (b.evaluation?.correct_option_id === optId) || (b.correct_option_id === optId) || tfOpts[tfIdx]?.is_correct; return (<label key={tfVal} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border cursor-pointer ${isSelected ? 'border-green-400 bg-green-50' : 'border-slate-200 bg-white'}`}><input type="radio" name={`tf_${b.id}`} checked={isSelected} onChange={() => { onUpdateBlock(globalIdx, { ...b, options: tfOpts, evaluation: { ...(b.evaluation || {}), correct_option_id: optId }, correct_option_id: optId }); }} /><span>{tfVal}</span></label>); })}</div></div>)}
+                                </div>
+
+                                <div className="flex items-center gap-1 opacity-70 group-hover:opacity-100 transition-opacity shrink-0">
+                                  <button type="button" onClick={(e) => { e.stopPropagation(); onMoveBlock(globalIdx, 'UP'); }} disabled={globalIdx === 0} title="Move Up" className="p-1 rounded hover:bg-slate-100 text-slate-500 disabled:opacity-20"><ChevronUp className="w-3.5 h-3.5" /></button>
+                                  <button type="button" onClick={(e) => { e.stopPropagation(); onMoveBlock(globalIdx, 'DOWN'); }} disabled={globalIdx === blocks.length - 1} title="Move Down" className="p-1 rounded hover:bg-slate-100 text-slate-500 disabled:opacity-20"><ChevronDown className="w-3.5 h-3.5" /></button>
+                                  <button type="button" onClick={(e) => { e.stopPropagation(); onDuplicateBlock(globalIdx); }} title="Duplicate Block" className="p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-slate-800"><Copy className="w-3.5 h-3.5" /></button>
+                                  <button type="button" onClick={(e) => { e.stopPropagation(); onDeleteBlock(globalIdx); }} title="Delete Block" className="p-1 rounded hover:bg-rose-50 text-slate-400 hover:text-rose-600"><Trash2 className="w-3.5 h-3.5" /></button>
+                                </div>
+                              </div>
+                            </div>
+                          </React.Fragment>
+                        );
+                      })}
                     </div>
-                    <div className="flex items-center gap-2 text-xs shrink-0">
-                      {pageInfo.totalInPage > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => handleUngroupPage(pageInfo.page)}
-                          className="text-[11px] font-bold text-slate-500 hover:text-slate-800 hover:bg-white/80 px-2 py-1 rounded transition-colors"
-                          title="Split this multi-block step into individual single-block steps"
-                        >
-                          Ungroup Step
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => openPickerAt(idx + pageInfo.totalInPage, pageInfo.pageId || generatePageId())}
-                        className="text-[11px] font-bold text-blue-600 hover:text-blue-700 bg-white hover:bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200 shadow-2xs flex items-center gap-1 transition-colors"
-                      >
+
+                    <div className="px-3 pb-3">
+                      <button type="button" onClick={() => openPickerForStep(page.pageId || page.pageKey)} className="w-full py-2.5 border-2 border-dashed border-slate-200 hover:border-blue-400 rounded-lg text-[11px] font-bold text-slate-400 hover:text-blue-600 bg-white/60 hover:bg-blue-50/30 transition-all flex items-center justify-center gap-1.5">
                         <Plus className="w-3 h-3" />
-                        <span>Add Block to Step {pageInfo.pageNumber}</span>
+                        Add Block to Step {pIdx + 1}
                       </button>
                     </div>
                   </div>
                 )}
-
-                {/* ── Insert Zone ── */}
-                <div className="group/insert relative h-6 flex items-center justify-center my-0.5 -mx-1">
-                  <div className="absolute inset-0 flex items-center">
-                    <div className="w-full border-t border-transparent group-hover/insert:border-blue-300 transition-colors" />
-                  </div>
-                  <div className="relative z-10 opacity-0 group-hover/insert:opacity-100 transition-all flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); openPickerAt(idx); }}
-                      className="flex items-center gap-1 px-2.5 py-0.5 bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-bold rounded-full shadow-md transition-transform hover:scale-105"
-                    >
-                      <Plus className="w-2.5 h-2.5" />
-                      Insert block here
-                    </button>
-                    {idx > 0 && blockPageInfo.get(idx - 1)?.pageNumber === blockPageInfo.get(idx)?.pageNumber && (
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); handleSplitNewPage(idx); }}
-                        className="flex items-center gap-1 px-2.5 py-0.5 bg-amber-600 hover:bg-amber-500 text-white text-[10px] font-bold rounded-full shadow-md transition-transform hover:scale-105"
-                        title="Split this step into two separate steps"
-                      >
-                        <Layers className="w-2.5 h-2.5" />
-                        Insert Page Break
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {/* ── Block Card ── */}
-                <div
-                  id={`block-card-${idx}`}
-                  draggable
-                  onDragStart={(e) => handleDragStart(e, idx)}
-                  onDragEnter={(e) => handleDragEnter(e, idx)}
-                  onDragLeave={handleDragLeave}
-                  onDragOver={handleDragOver}
-                  onDrop={(e) => handleDrop(e, idx)}
-                  onDragEnd={handleDragEnd}
-                  onClick={() => onSelectBlock(idx)}
-                  className={`relative rounded-xl border transition-all duration-150 ${
-                    isSelected
-                      ? 'border-blue-500 ring-2 ring-blue-500/20 bg-white shadow-md'
-                      : 'border-slate-200 hover:border-slate-300 bg-white shadow-sm'
-                  } ${isDragTarget ? 'border-dashed border-blue-400 bg-blue-50/20' : ''} ${
-                    isDragging ? 'opacity-40' : ''
-                  }`}
-                >
-                  <div className="p-4 sm:p-5 flex items-start gap-3">
-                    {/* Drag Handle & Order Badge */}
-                    <div className="flex flex-col items-center gap-1 pt-1 select-none text-slate-300">
-                      <span
-                        className="cursor-grab active:cursor-grabbing p-1 hover:text-slate-500"
-                        title="Drag to reorder block"
-                      >
-                        <GripVertical className="w-4 h-4" />
-                      </span>
-                      <span className="text-[9px] text-slate-300 font-mono">
-                        #{b.order_index ?? idx}
-                      </span>
-                    </div>
-
-                    <div className="space-y-3 flex-1">
-                      {/* Top Meta Badges & Discriminators */}
-                      <div className="flex items-center gap-2 flex-wrap">
-                        {/* Content Type Selector */}
-                        <select
-                          value={cType}
-                          onChange={(e) => {
-                            const nextType = e.target.value;
-                            const isNextPure = ['HEADING', 'TEXT', 'IMAGE', 'CALLOUT', 'ANALOGY', 'TABLE'].includes(nextType);
-                            onUpdateBlock(idx, {
-                              ...b,
-                              content_type: nextType,
-                              type: nextType,
-                              ...(isNextPure ? {
-                                response_type: 'NONE',
-                                evidence_role: 'NONE',
-                                options: undefined,
-                                evaluation: undefined,
-                                correct_option_id: undefined,
-                              } : {}),
-                            });
-                          }}
-                          onClick={(e) => e.stopPropagation()}
-                          className={`text-[11px] font-bold rounded px-2 py-0.5 border bg-white focus:outline-none focus:border-blue-500 ${config.color}`}
-                        >
-                          <option value="HEADING">HEADING</option>
-                          <option value="TEXT">TEXT</option>
-                          <option value="IMAGE">IMAGE</option>
-                          <option value="CALLOUT">CALLOUT</option>
-                          <option value="ANALOGY">ANALOGY</option>
-                          <option value="CANDLESTICK">CANDLESTICK</option>
-                          <option value="TABLE">TABLE</option>
-                          <option value="SCENARIO">SCENARIO</option>
-                        </select>
-
-                        {/* Response Type Selector / Pure Content Badge */}
-                        {isPureContent ? (
-                          <span className="text-[11px] font-bold rounded px-2 py-0.5 border bg-slate-100 text-slate-600 border-slate-200">
-                            PURE CONTENT
-                          </span>
-                        ) : (
-                          <select
-                            value={rType}
-                            onChange={(e) => {
-                              const nextRType = e.target.value;
-                              const isInteractive = nextRType !== 'NONE';
-                              const opt1 = generateUUID();
-                              const opt2 = generateUUID();
-                              onUpdateBlock(idx, {
-                                ...b,
-                                response_type: nextRType,
-                                evidence_role:
-                                  isInteractive && b.evidence_role === 'NONE'
-                                    ? 'FORMATIVE'
-                                    : b.evidence_role,
-                                options:
-                                  isInteractive && (!b.options || b.options.length === 0)
-                                    ? [
-                                        { id: opt1, text: 'Option A', is_correct: true },
-                                        { id: opt2, text: 'Option B', is_correct: false },
-                                      ]
-                                    : b.options,
-                                evaluation:
-                                  isInteractive && !b.evaluation
-                                    ? {
-                                        correct_option_id: opt1,
-                                        explanation: 'Explanation for learner feedback.',
-                                      }
-                                    : b.evaluation,
-                                correct_option_id: isInteractive ? opt1 : undefined,
-                              });
-                            }}
-                            onClick={(e) => e.stopPropagation()}
-                            className={`text-[11px] font-bold rounded px-2 py-0.5 border focus:outline-none focus:border-blue-500 ${
-                              rType === 'NONE'
-                                ? 'bg-slate-100 text-slate-600 border-slate-200'
-                                : 'bg-emerald-50 text-emerald-700 border-emerald-300'
-                            }`}
-                          >
-                            <option value="NONE">PURE CONTENT (No Evaluation)</option>
-                            <option value="SINGLE_CHOICE">SINGLE CHOICE MCQ</option>
-                            <option value="MULTIPLE_CHOICE">MULTIPLE CHOICE (Multi-Select Checkboxes)</option>
-                            <option value="IMAGE_SELECTION">IMAGE SELECTION MCQ</option>
-                            <option value="TRUE_FALSE">TRUE / FALSE</option>
-                          </select>
-                        )}
-
-                        {/* Activity Type Metadata */}
-                        <select
-                          value={b.activity_type || 'EXPERIENCE'}
-                          onChange={(e) =>
-                            onUpdateBlock(idx, { ...b, activity_type: e.target.value })
-                          }
-                          onClick={(e) => e.stopPropagation()}
-                          className="text-[10px] font-bold bg-slate-50 border border-slate-200 text-slate-600 rounded px-1.5 py-0.5 focus:outline-none"
-                        >
-                          <option value="OBSERVE">Observe</option>
-                          <option value="PREDICT">Predict</option>
-                          <option value="EXPLAIN">Explain</option>
-                          <option value="PRACTICE">Practice</option>
-                          <option value="APPLICATION">Application</option>
-                          <option value="EXPERIENCE">Experience</option>
-                          <option value="RETRIEVE">Retrieve</option>
-                          <option value="REFLECT">Reflect</option>
-                        </select>
-
-                        {/* Evidence Role */}
-                        {rType !== 'NONE' && (
-                          <select
-                            value={b.evidence_role || 'FORMATIVE'}
-                            onChange={(e) =>
-                              onUpdateBlock(idx, { ...b, evidence_role: e.target.value })
-                            }
-                            onClick={(e) => e.stopPropagation()}
-                            className="text-[10px] font-black uppercase tracking-wider bg-blue-50 text-blue-700 border border-blue-200 rounded px-1.5 py-0.5 focus:outline-none"
-                          >
-                            <option value="NONE">Formative Only</option>
-                            <option value="FORMATIVE">Formative Evidence</option>
-                            <option value="DIAGNOSTIC">Diagnostic</option>
-                            <option value="MASTERY_EVIDENCE">Mastery Evidence</option>
-                          </select>
-                        )}
-
-                        {/* Step & Page Grouping Control */}
-                        {(() => {
-                          const info = blockPageInfo.get(idx);
-                          const isSameAsPrev = idx > 0 && blockPageInfo.get(idx - 1)?.pageNumber === info?.pageNumber;
-                          const prevPageNum = idx > 0 ? blockPageInfo.get(idx - 1)?.pageNumber : null;
-
-                          return (
-                            <div className="flex items-center gap-1.5 bg-slate-50 hover:bg-slate-100/80 border border-slate-200 rounded-lg px-2 py-0.5 transition-colors">
-                              <Layers className="w-3 h-3 text-blue-600" />
-                              <span className="text-[11px] font-black text-slate-700">
-                                Step {info?.pageNumber || idx + 1}
-                              </span>
-                              {info && info.totalInPage > 1 && (
-                                <span className="text-[10px] text-slate-500 font-medium">
-                                  ({info.positionInPage + 1}/{info.totalInPage})
-                                </span>
-                              )}
-
-                              {/* Quick Grouping Actions */}
-                              <div className="flex items-center gap-1 ml-1 pl-1.5 border-l border-slate-300">
-                                {idx > 0 && !isSameAsPrev && (
-                                  <button
-                                    type="button"
-                                    onClick={(e) => { e.stopPropagation(); handleMergeWithPrev(idx); }}
-                                    className="text-[10px] font-bold text-blue-600 hover:text-blue-800 hover:bg-blue-100/60 px-1.5 py-0.5 rounded transition-colors"
-                                    title={`Group this block into Step ${prevPageNum} with previous block`}
-                                  >
-                                    + Merge with Step {prevPageNum}
-                                  </button>
-                                )}
-                                {isSameAsPrev && (
-                                  <button
-                                    type="button"
-                                    onClick={(e) => { e.stopPropagation(); handleSplitNewPage(idx); }}
-                                    className="text-[10px] font-bold text-amber-700 hover:text-amber-900 hover:bg-amber-100/60 px-1.5 py-0.5 rounded transition-colors"
-                                    title="Separate this block to start a new step"
-                                  >
-                                    ✂ Split to New Step
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })()}
-                      </div>
-
-                      {/* Block Title */}
-                      <input
-                        type="text"
-                        value={b.title || ''}
-                        onChange={(e) => onUpdateBlock(idx, { ...b, title: e.target.value })}
-                        placeholder="Block Title (e.g. Overnight Repo Rate Mechanics)"
-                        className="w-full text-sm font-bold text-slate-900 bg-transparent border-b border-transparent hover:border-slate-200 focus:border-blue-500 focus:outline-none"
-                      />
-
-                      {/* ── 1. HEADING Content Editor ── */}
-                      {cType === 'HEADING' && (
-                        <div className="space-y-2 p-3 bg-purple-50/50 rounded-lg border border-purple-100">
-                          <div className="flex items-center gap-3">
-                            <label className="text-[10px] font-bold text-purple-900 uppercase">
-                              Level:
-                            </label>
-                            <select
-                              value={content.level || 'H2'}
-                              onChange={(e) =>
-                                onUpdateBlock(idx, {
-                                  ...b,
-                                  content: { ...content, level: e.target.value },
-                                })
-                              }
-                              className="text-xs font-bold border border-purple-200 rounded px-2 py-1 bg-white"
-                            >
-                              <option value="H1">H1 — Main Section Header</option>
-                              <option value="H2">H2 — Sub-concept Header</option>
-                              <option value="H3">H3 — Deep-dive Sub-point</option>
-                            </select>
-                          </div>
-                          <input
-                            type="text"
-                            value={content.title || content.text || b.title || ''}
-                            onChange={(e) =>
-                              onUpdateBlock(idx, {
-                                ...b,
-                                title: e.target.value,
-                                content: {
-                                  ...content,
-                                  title: e.target.value,
-                                  text: e.target.value,
-                                },
-                              })
-                            }
-                            placeholder="Section Heading Text..."
-                            className="w-full text-base font-bold bg-white border border-purple-200 rounded p-2 focus:outline-none focus:border-purple-500"
-                          />
-                        </div>
-                      )}
-
-                      {/* ── 2. TEXT Content Editor (Canonical content.text) ── */}
-                      {cType === 'TEXT' && (
-                        <div className="space-y-1">
-                          <textarea
-                            rows={4}
-                            value={content.text ?? content.body ?? b.prompt ?? ''}
-                            onChange={(e) =>
-                              onUpdateBlock(idx, {
-                                ...b,
-                                content: { ...content, text: e.target.value },
-                                prompt: e.target.value,
-                              })
-                            }
-                            placeholder="Provide clear pedagogical explanation, market dynamics, and core conceptual rationale (markdown supported)..."
-                            className="w-full text-xs text-slate-700 bg-slate-50 border border-slate-200 rounded-lg p-3 focus:outline-none focus:border-blue-500 focus:bg-white resize-y min-h-[90px] leading-relaxed"
-                          />
-                          <div className="text-[10px] text-slate-400 flex items-center justify-between">
-                            <span>Markdown supported · Canonical representation in content.text</span>
-                            <span>{((content.text ?? content.body ?? '').length)} characters</span>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* ── 3. IMAGE Content Editor (Canonical media_asset_id only, derived URL) ── */}
-                      {cType === 'IMAGE' && (
-                        <div className="space-y-3 p-3.5 bg-blue-50/40 rounded-lg border border-blue-100">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[11px] font-bold text-blue-900 uppercase tracking-wider">
-                              Image Asset & Diagram
-                            </span>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openMediaForBlock(idx);
-                              }}
-                              className="flex items-center gap-1.5 px-3 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-sm"
-                            >
-                              <Upload className="w-3.5 h-3.5" />
-                              <span>{b.media_asset_id ? 'Replace Image' : 'Select / Upload Image'}</span>
-                            </button>
-                          </div>
-
-                          {b.media_asset_id ? (
-                            <div className="flex items-start gap-4">
-                              <div className="w-36 h-24 rounded border border-slate-200 bg-white p-1 overflow-hidden shrink-0">
-                                <MediaImagePreview
-                                  mediaAssetId={b.media_asset_id}
-                                  alt={content.alt_text || 'Block image'}
-                                  className="w-full h-full object-contain"
-                                />
-                              </div>
-                              <div className="flex-1 space-y-2">
-                                <input
-                                  type="text"
-                                  value={content.caption || ''}
-                                  onChange={(e) =>
-                                    onUpdateBlock(idx, {
-                                      ...b,
-                                      content: { ...content, caption: e.target.value },
-                                    })
-                                  }
-                                  placeholder="Image caption / explanation..."
-                                  className="w-full text-xs p-1.5 border border-slate-200 rounded bg-white"
-                                />
-                                <input
-                                  type="text"
-                                  value={content.alt_text || ''}
-                                  onChange={(e) =>
-                                    onUpdateBlock(idx, {
-                                      ...b,
-                                      content: { ...content, alt_text: e.target.value },
-                                    })
-                                  }
-                                  placeholder="Accessibility alt text..."
-                                  className="w-full text-xs p-1.5 border border-slate-200 rounded bg-white"
-                                />
-                                <div className="text-[10px] text-slate-400 font-mono truncate">
-                                  Canonical Asset ID: {b.media_asset_id}
-                                </div>
-                                <div className="flex items-center gap-2 pt-1">
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      openMediaForBlock(idx);
-                                    }}
-                                    className="text-xs font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1 cursor-pointer"
-                                  >
-                                    <ImageIcon className="w-3.5 h-3.5" />
-                                    <span>Change Image</span>
-                                  </button>
-                                  <span className="text-slate-300">|</span>
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      onUpdateBlock(idx, {
-                                        ...b,
-                                        media_asset_id: null,
-                                        content: { ...content, media_asset_id: null },
-                                      });
-                                    }}
-                                    className="text-xs font-bold text-rose-600 hover:text-rose-800 cursor-pointer"
-                                  >
-                                    Remove
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                          ) : (
-                            <div
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openMediaForBlock(idx);
-                              }}
-                              className="p-6 text-center border-2 border-dashed border-blue-200 hover:border-blue-400 rounded-lg cursor-pointer bg-white transition-colors"
-                            >
-                              <ImageIcon className="w-6 h-6 text-blue-400 mx-auto mb-1" />
-                              <span className="text-xs font-semibold text-blue-600">
-                                Click to choose an image from Media Library or upload a new asset
-                              </span>
-                              <div className="text-[10px] text-slate-400 mt-0.5">
-                                Only canonical media_asset_id will be stored; display URLs are strictly derived
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      {/* ── 4. CALLOUT Content Editor ── */}
-                      {cType === 'CALLOUT' && (
-                        <div className="space-y-2 p-3 bg-amber-50/50 rounded-lg border border-amber-100">
-                          <div className="flex items-center gap-2">
-                            <span className="text-[10px] font-bold text-amber-900 uppercase">
-                              Tone:
-                            </span>
-                            <select
-                              value={content.tone || 'NOTE'}
-                              onChange={(e) =>
-                                onUpdateBlock(idx, {
-                                  ...b,
-                                  content: { ...content, tone: e.target.value },
-                                })
-                              }
-                              className="text-xs font-bold border border-amber-200 rounded px-2 py-0.5 bg-white"
-                            >
-                              <option value="NOTE">Information / Note</option>
-                              <option value="TIP">Pro Tip</option>
-                              <option value="IMPORTANT">Important Rule</option>
-                              <option value="WARNING">Risk / Warning</option>
-                              <option value="KEY_TAKEAWAY">Key Takeaway</option>
-                            </select>
-                          </div>
-                          <input
-                            type="text"
-                            value={content.title || ''}
-                            onChange={(e) =>
-                              onUpdateBlock(idx, {
-                                ...b,
-                                content: { ...content, title: e.target.value },
-                              })
-                            }
-                            placeholder="Callout Title (e.g. Critical Principle)..."
-                            className="w-full text-xs font-bold bg-white border border-amber-200 rounded p-1.5 focus:outline-none"
-                          />
-                          <textarea
-                            rows={2}
-                            value={content.body || content.text || content.takeaway || ''}
-                            onChange={(e) =>
-                              onUpdateBlock(idx, {
-                                ...b,
-                                content: {
-                                  ...content,
-                                  body: e.target.value,
-                                  text: e.target.value,
-                                },
-                              })
-                            }
-                            placeholder="Callout message or core takeaway..."
-                            className="w-full text-xs bg-white border border-amber-200 rounded p-1.5 focus:outline-none resize-none"
-                          />
-                        </div>
-                      )}
-
-                      {/* ── 5. ANALOGY Content Editor ── */}
-                      {cType === 'ANALOGY' && (
-                        <div className="space-y-2.5 p-3 bg-emerald-50/40 rounded-lg border border-emerald-100">
-                          <span className="text-[10px] font-bold text-emerald-900 uppercase tracking-wider block">
-                            Everyday Intuition Analogy
-                          </span>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            <div>
-                              <label className="text-[10px] font-semibold text-emerald-800">
-                                Everyday Metaphor:
-                              </label>
-                              <input
-                                type="text"
-                                value={content.source_domain || content.metaphor || ''}
-                                onChange={(e) =>
-                                  onUpdateBlock(idx, {
-                                    ...b,
-                                    content: {
-                                      ...content,
-                                      source_domain: e.target.value,
-                                      metaphor: e.target.value,
-                                    },
-                                  })
-                                }
-                                placeholder="e.g. A water reservoir valve"
-                                className="w-full text-xs p-1.5 bg-white border border-emerald-200 rounded"
-                              />
-                            </div>
-                            <div>
-                              <label className="text-[10px] font-semibold text-emerald-800">
-                                Financial Concept:
-                              </label>
-                              <input
-                                type="text"
-                                value={content.target_domain || content.concept || ''}
-                                onChange={(e) =>
-                                  onUpdateBlock(idx, {
-                                    ...b,
-                                    content: {
-                                      ...content,
-                                      target_domain: e.target.value,
-                                      concept: e.target.value,
-                                    },
-                                  })
-                                }
-                                placeholder="e.g. Central Bank Repo Rate"
-                                className="w-full text-xs p-1.5 bg-white border border-emerald-200 rounded"
-                              />
-                            </div>
-                          </div>
-                          <textarea
-                            rows={2}
-                            value={content.mapping_text || content.explanation || ''}
-                            onChange={(e) =>
-                              onUpdateBlock(idx, {
-                                ...b,
-                                content: {
-                                  ...content,
-                                  mapping_text: e.target.value,
-                                  explanation: e.target.value,
-                                },
-                              })
-                            }
-                            placeholder="Explain how the metaphor directly maps to the market mechanics..."
-                            className="w-full text-xs bg-white border border-emerald-200 rounded p-1.5 resize-none"
-                          />
-                        </div>
-                      )}
-
-                      {/* ── 6. CANDLESTICK Content Editor (Flexible OHLC) ── */}
-                      {cType === 'CANDLESTICK' && (
-                        <div className="space-y-3 p-3.5 rounded-lg bg-slate-50 border border-slate-200">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">
-                              Interactive Candlestick Coordinates
-                            </span>
-                            <span
-                              className={`text-[10px] font-extrabold px-2 py-0.5 rounded uppercase ${
-                                (content.close ?? 120) >= (content.open ?? 100)
-                                  ? 'bg-emerald-100 text-emerald-800'
-                                  : 'bg-rose-100 text-rose-800'
-                              }`}
-                            >
-                              {(content.close ?? 120) >= (content.open ?? 100)
-                                ? 'Bullish (Green)'
-                                : 'Bearish (Red)'}
-                            </span>
-                          </div>
-
-                          <div className="flex items-center gap-6">
-                            {/* Dynamic SVG Candle */}
-                            {(() => {
-                              const open = Number(content.open ?? 100);
-                              const high = Number(content.high ?? 125);
-                              const low = Number(content.low ?? 95);
-                              const close = Number(content.close ?? 120);
-                              const isBullish = close >= open;
-                              const strokeColor = isBullish ? '#10B981' : '#EF4444';
-                              const span = Math.max(1, high - low);
-                              const scale = (val) => 110 - ((val - low) / span) * 100;
-                              const yHigh = scale(high);
-                              const yLow = scale(low);
-                              const yOpen = scale(open);
-                              const yClose = scale(close);
-                              const bodyTop = Math.min(yOpen, yClose);
-                              const bodyHeight = Math.max(3, Math.abs(yClose - yOpen));
-
-                              return (
-                                <div className="w-20 h-28 bg-white border border-slate-200 rounded-lg p-2 flex items-center justify-center shrink-0 shadow-inner">
-                                  <svg viewBox="0 0 100 120" className="w-full h-full">
-                                    {/* Wick */}
-                                    <line
-                                      x1="50"
-                                      y1={yHigh}
-                                      x2="50"
-                                      y2={yLow}
-                                      stroke={strokeColor}
-                                      strokeWidth="3"
-                                    />
-                                    {/* Real Body */}
-                                    <rect
-                                      x="30"
-                                      y={bodyTop}
-                                      width="40"
-                                      height={bodyHeight}
-                                      fill={strokeColor}
-                                      rx="2"
-                                    />
-                                  </svg>
-                                </div>
-                              );
-                            })()}
-
-                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 flex-1">
-                              {['open', 'high', 'low', 'close'].map((key) => (
-                                <div key={key}>
-                                  <label className="text-[10px] font-bold text-slate-500 block uppercase">
-                                    {key}
-                                  </label>
-                                  <input
-                                    type="number"
-                                    value={
-                                      content[key] ??
-                                      (key === 'high'
-                                        ? 125
-                                        : key === 'low'
-                                        ? 95
-                                        : key === 'close'
-                                        ? 120
-                                        : 100)
-                                    }
-                                    onChange={(e) =>
-                                      onUpdateBlock(idx, {
-                                        ...b,
-                                        content: { ...content, [key]: Number(e.target.value) },
-                                      })
-                                    }
-                                    className="w-full p-1 text-xs font-mono font-bold bg-white border border-slate-200 rounded"
-                                  />
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-
-                          {/* Coordinates Validation Hint */}
-                          {(() => {
-                            const open = Number(content.open ?? 100);
-                            const high = Number(content.high ?? 125);
-                            const low = Number(content.low ?? 95);
-                            const close = Number(content.close ?? 120);
-                            const highInvalid = high < Math.max(open, close);
-                            const lowInvalid = low > Math.min(open, close);
-                            if (highInvalid || lowInvalid) {
-                              return (
-                                <div className="text-[10px] text-rose-600 flex items-center gap-1 font-bold">
-                                  <AlertCircle className="w-3 h-3" />
-                                  <span>
-                                    {highInvalid && 'High must be >= max(open, close). '}
-                                    {lowInvalid && 'Low must be <= min(open, close).'}
-                                  </span>
-                                </div>
-                              );
-                            }
-                            return null;
-                          })()}
-                        </div>
-                      )}
-
-                      {/* ── 7. TABLE Content Editor ── */}
-                      {cType === 'TABLE' && (
-                        <div className="space-y-3 p-3 bg-teal-50/40 rounded-lg border border-teal-100">
-                          <span className="text-[10px] font-bold text-teal-900 uppercase tracking-wider block">
-                            Financial Data Table
-                          </span>
-                          <input
-                            type="text"
-                            value={content.caption || ''}
-                            onChange={(e) =>
-                              onUpdateBlock(idx, {
-                                ...b,
-                                content: { ...content, caption: e.target.value },
-                              })
-                            }
-                            placeholder="Table caption / title..."
-                            className="w-full text-xs p-1.5 bg-white border border-teal-200 rounded"
-                          />
-                          <div className="text-[10px] text-teal-700">
-                            Headers: {(content.headers || ['Category', 'Value']).join(' | ')}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* ── 8. SCENARIO Content Editor ── */}
-                      {/* ── 8. SCENARIO / Question Content Editor ── */}
-                      {cType === 'SCENARIO' && (
-                        <div className="space-y-3 p-3 bg-rose-50/40 rounded-lg border border-rose-100">
-                          <span className="text-[10px] font-bold text-rose-900 uppercase tracking-wider block">
-                            Market Dilemma / Challenge Scenario
-                          </span>
-                          <div className="space-y-1">
-                            <label className="text-[10px] font-bold text-slate-700 uppercase block">
-                              Question / Challenge Prompt:
-                            </label>
-                            <textarea
-                              rows={2}
-                              value={b.prompt ?? content.prompt ?? content.dilemma ?? content.context ?? ''}
-                              onChange={(e) => {
-                                const val = e.target.value;
-                                onUpdateBlock(idx, {
-                                  ...b,
-                                  prompt: val,
-                                  title: b.title && !b.title.startsWith('Block ') ? b.title : val,
-                                  content: {
-                                    ...content,
-                                    prompt: val,
-                                    dilemma: val,
-                                  },
-                                });
-                              }}
-                              placeholder="Enter the main question for the learner (e.g. Question: What does OPEN represent?)..."
-                              className="w-full text-xs font-semibold bg-white border border-rose-200 rounded p-2 resize-none focus:border-rose-400 focus:outline-none"
-                            />
-                          </div>
-
-                          <div className="space-y-1">
-                            <label className="text-[10px] font-bold text-slate-500 uppercase block">
-                              Market Scenario / Context Details (Optional):
-                            </label>
-                            <textarea
-                              rows={2}
-                              value={content.context || ''}
-                              onChange={(e) =>
-                                onUpdateBlock(idx, {
-                                  ...b,
-                                  content: { ...content, context: e.target.value },
-                                })
-                              }
-                              placeholder="Describe market situation or price action (e.g. A candle opens at 100/- and later moves to 108/-)..."
-                              className="w-full text-xs bg-white border border-rose-200 rounded p-1.5 resize-none focus:outline-none"
-                            />
-                          </div>
-
-                          {/* Attached Question Illustration / Chart Diagram */}
-                          <div className="pt-2 border-t border-rose-200/60">
-                            <label className="text-[10px] font-bold text-rose-900 uppercase block mb-1">
-                              Question Illustration / Chart Diagram (Optional):
-                            </label>
-                            {b.media_asset_id ? (
-                              <div className="flex items-center gap-3 p-2 bg-white rounded-lg border border-rose-200">
-                                <div className="w-24 h-16 rounded border border-slate-200 bg-slate-50 overflow-hidden shrink-0 flex items-center justify-center">
-                                  <MediaImagePreview
-                                    mediaAssetId={b.media_asset_id}
-                                    alt="Question illustration"
-                                    className="w-full h-full object-contain"
-                                  />
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <span className="text-xs font-semibold text-slate-800 block truncate">
-                                    Attached Question Image
-                                  </span>
-                                  <span className="text-[10px] text-slate-400 font-mono block truncate">
-                                    {b.media_asset_id}
-                                  </span>
-                                  <div className="flex items-center gap-2 mt-1">
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        openMediaForBlock(idx);
-                                      }}
-                                      className="text-xs font-bold text-blue-600 hover:text-blue-800 cursor-pointer"
-                                    >
-                                      Replace Image
-                                    </button>
-                                    <span className="text-slate-300">|</span>
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        onUpdateBlock(idx, {
-                                          ...b,
-                                          media_asset_id: null,
-                                          content: { ...content, media_asset_id: null },
-                                        });
-                                      }}
-                                      className="text-xs font-bold text-rose-600 hover:text-rose-800 cursor-pointer"
-                                    >
-                                      Remove
-                                    </button>
-                                  </div>
-                                </div>
-                              </div>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  openMediaForBlock(idx);
-                                }}
-                                className="w-full py-2 px-3 border border-dashed border-rose-300 hover:border-rose-400 rounded-lg text-rose-700 hover:text-rose-900 text-xs font-semibold flex items-center justify-center gap-1.5 bg-white transition-colors cursor-pointer"
-                              >
-                                <ImageIcon className="w-4 h-4" />
-                                <span>+ Attach Diagram / Chart Image to this Question</span>
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* ── Interactive Response Options & Answer Key (MCQ / Single Choice / Multi-Select) ── */}
-                      {(rType === 'SINGLE_CHOICE' || rType === 'MULTIPLE_CHOICE') && (
-                        <div className="mt-3 p-3.5 rounded-lg bg-blue-50/50 border border-blue-100 space-y-3">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[11px] font-bold text-blue-900 uppercase tracking-wider">
-                              {rType === 'MULTIPLE_CHOICE'
-                                ? 'Multiple Choice Options & Answer Key (Multi-Select Checkboxes)'
-                                : 'Multiple Choice Options & Answer Key (Single Correct Choice)'}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                const existing = b.options || [];
-                                const newOptId = generateUUID();
-                                const newOpt = {
-                                  id: newOptId,
-                                  text: `Option ${existing.length + 1}`,
-                                  is_correct: false,
-                                };
-                                onUpdateBlock(idx, {
-                                  ...b,
-                                  options: [...existing, newOpt],
-                                });
-                              }}
-                              className="text-[11px] font-bold text-blue-700 hover:text-blue-800"
-                            >
-                              + Add Option
-                            </button>
-                          </div>
-
-                          <div className="space-y-2">
-                            {(b.options || []).map((opt, optIdx) => {
-                              const isMulti = rType === 'MULTIPLE_CHOICE';
-                              const isCorrect = isMulti
-                                ? Boolean(
-                                    opt.is_correct ||
-                                      (b.evaluation?.correct_option_ids || []).includes(opt.id) ||
-                                      (b.correct_option_ids || []).includes(opt.id)
-                                  )
-                                : Boolean(
-                                    b.evaluation?.correct_option_id === opt.id ||
-                                      opt.is_correct ||
-                                      b.correct_option_id === opt.id
-                                  );
-
-                              return (
-                                <div key={opt.id || optIdx} className="flex flex-col gap-1.5 p-2 bg-white rounded-lg border border-slate-200">
-                                  <div className="flex items-center gap-2">
-                                    <input
-                                      type={isMulti ? 'checkbox' : 'radio'}
-                                      name={`correct_opt_${b.id || idx}`}
-                                      checked={Boolean(isCorrect)}
-                                      onChange={() => {
-                                        if (isMulti) {
-                                          const willBeCorrect = !isCorrect;
-                                          const updatedOpts = (b.options || []).map((o, i) =>
-                                            i === optIdx ? { ...o, is_correct: willBeCorrect } : o
-                                          );
-                                          const correctIds = updatedOpts.filter((o) => o.is_correct).map((o) => o.id);
-                                          onUpdateBlock(idx, {
-                                            ...b,
-                                            options: updatedOpts,
-                                            evaluation: {
-                                              ...(b.evaluation || {}),
-                                              correct_option_ids: correctIds,
-                                              correct_option_id: correctIds[0] || null,
-                                            },
-                                            correct_option_ids: correctIds,
-                                            correct_option_id: correctIds[0] || null,
-                                          });
-                                        } else {
-                                          const updatedOpts = (b.options || []).map((o) => ({
-                                            ...o,
-                                            is_correct: o.id === opt.id,
-                                          }));
-                                          onUpdateBlock(idx, {
-                                            ...b,
-                                            options: updatedOpts,
-                                            evaluation: {
-                                              ...(b.evaluation || {}),
-                                              correct_option_id: opt.id,
-                                            },
-                                            correct_option_id: opt.id,
-                                          });
-                                        }
-                                      }}
-                                      className={`text-blue-600 focus:ring-blue-500 shrink-0 ${isMulti ? 'rounded' : ''}`}
-                                      title={isMulti ? 'Toggle as correct answer' : 'Mark as correct answer'}
-                                    />
-                                    <input
-                                      type="text"
-                                      value={opt.text || ''}
-                                      onChange={(e) => {
-                                        const updatedOpts = (b.options || []).map((o, i) =>
-                                          i === optIdx ? { ...o, text: e.target.value } : o
-                                        );
-                                        onUpdateBlock(idx, { ...b, options: updatedOpts });
-                                      }}
-                                      placeholder={`Option ${optIdx + 1}`}
-                                      className="flex-1 p-1.5 text-xs bg-slate-50 border border-slate-200 rounded focus:border-blue-500 focus:bg-white focus:outline-none"
-                                    />
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        openMediaForOption(idx, optIdx);
-                                      }}
-                                      className={`p-1.5 rounded border text-xs flex items-center gap-1 cursor-pointer ${
-                                        opt.media_asset_id
-                                          ? 'bg-blue-50 border-blue-200 text-blue-600'
-                                          : 'bg-slate-50 border-slate-200 text-slate-400 hover:text-slate-600'
-                                      }`}
-                                      title="Attach illustration to choice"
-                                    >
-                                      <ImageIcon className="w-3.5 h-3.5" />
-                                      {opt.media_asset_id && <span className="text-[10px] font-bold">Img</span>}
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        const updatedOpts = (b.options || []).filter(
-                                          (_, i) => i !== optIdx
-                                        );
-                                        onUpdateBlock(idx, { ...b, options: updatedOpts });
-                                      }}
-                                      className="text-slate-400 hover:text-rose-600 text-xs px-1"
-                                      title="Delete option"
-                                    >
-                                      ✕
-                                    </button>
-                                  </div>
-
-                                  {/* Attached Option Image Thumbnail */}
-                                  {opt.media_asset_id && (
-                                    <div className="flex items-center gap-2 pl-6 pt-1">
-                                      <div className="w-16 h-10 rounded border border-slate-200 bg-slate-50 overflow-hidden shrink-0 flex items-center justify-center">
-                                        <MediaImagePreview
-                                          mediaAssetId={opt.media_asset_id}
-                                          alt="Choice visual"
-                                          className="w-full h-full object-contain"
-                                        />
-                                      </div>
-                                      <button
-                                        type="button"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          const nextOptions = [...(b.options || [])];
-                                          const targetOpt = { ...(nextOptions[optIdx] || {}) };
-                                          delete targetOpt.media_asset_id;
-                                          delete targetOpt.image_url;
-                                          delete targetOpt.url;
-                                          nextOptions[optIdx] = targetOpt;
-                                          onUpdateBlock(idx, { ...b, options: nextOptions });
-                                        }}
-                                        className="text-[10px] font-bold text-rose-500 hover:text-rose-700 cursor-pointer"
-                                      >
-                                        Remove Image
-                                      </button>
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
-
-                          {/* Explanation for remediation */}
-                          <div className="pt-2 border-t border-blue-100">
-                            <label className="text-[10px] font-bold text-blue-800 uppercase block mb-1">
-                              Explanation / Pedagogical Feedback:
-                            </label>
-                            <textarea
-                              rows={2}
-                              value={b.evaluation?.explanation || b.feedback?.explanation || ''}
-                              onChange={(e) =>
-                                onUpdateBlock(idx, {
-                                  ...b,
-                                  evaluation: {
-                                    ...(b.evaluation || {}),
-                                    explanation: e.target.value,
-                                    correct_option_id:
-                                      b.evaluation?.correct_option_id ||
-                                      b.options?.find((o) => o.is_correct)?.id ||
-                                      b.options?.[0]?.id,
-                                  },
-                                  feedback: { explanation: e.target.value },
-                                })
-                              }
-                              placeholder="Explain why the correct answer holds and common beginner traps..."
-                              className="w-full text-xs p-2 bg-white border border-blue-200 rounded focus:outline-none resize-none"
-                            />
-                          </div>
-                        </div>
-                      )}
-
-                      {/* ── IMAGE_SELECTION Response Editor (Canonical media_asset_id per option) ── */}
-                      {rType === 'IMAGE_SELECTION' && (
-                        <div className="mt-3 p-3.5 rounded-lg bg-indigo-50/50 border border-indigo-100 space-y-3">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[11px] font-bold text-indigo-900 uppercase tracking-wider">
-                              Visual Pattern Choices (Image Selection)
-                            </span>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                const existing = b.options || [];
-                                const newOptId = generateUUID();
-                                onUpdateBlock(idx, {
-                                  ...b,
-                                  options: [
-                                    ...existing,
-                                    {
-                                      id: newOptId,
-                                      label: `Choice ${existing.length + 1}`,
-                                      media_asset_id: null,
-                                      is_correct: false,
-                                    },
-                                  ],
-                                });
-                              }}
-                              className="text-[11px] font-bold text-indigo-700 hover:text-indigo-800"
-                            >
-                              + Add Visual Choice
-                            </button>
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-3">
-                            {(b.options || []).map((opt, optIdx) => {
-                              const isCorrect =
-                                b.evaluation?.correct_option_id === opt.id ||
-                                opt.is_correct ||
-                                b.correct_option_id === opt.id;
-                              return (
-                                <div
-                                  key={opt.id || optIdx}
-                                  className={`p-2.5 rounded-lg border bg-white space-y-2 ${
-                                    isCorrect
-                                      ? 'border-indigo-500 ring-2 ring-indigo-500/20'
-                                      : 'border-slate-200'
-                                  }`}
-                                >
-                                  <div className="flex items-center justify-between">
-                                    <label className="flex items-center gap-1.5 text-xs font-bold text-slate-800 cursor-pointer">
-                                      <input
-                                        type="radio"
-                                        name={`img_correct_${b.id || idx}`}
-                                        checked={Boolean(isCorrect)}
-                                        onChange={() => {
-                                          const updatedOpts = (b.options || []).map((o) => ({
-                                            ...o,
-                                            is_correct: o.id === opt.id,
-                                          }));
-                                          onUpdateBlock(idx, {
-                                            ...b,
-                                            options: updatedOpts,
-                                            evaluation: {
-                                              ...(b.evaluation || {}),
-                                              correct_option_id: opt.id,
-                                            },
-                                            correct_option_id: opt.id,
-                                          });
-                                        }}
-                                      />
-                                      <span>Correct</span>
-                                    </label>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        const updatedOpts = (b.options || []).filter(
-                                          (_, i) => i !== optIdx
-                                        );
-                                        onUpdateBlock(idx, { ...b, options: updatedOpts });
-                                      }}
-                                      className="text-slate-400 hover:text-rose-600 text-xs"
-                                    >
-                                      ✕
-                                    </button>
-                                  </div>
-
-                                  {/* Dynamic Media Image Preview */}
-                                  <div
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      openMediaForOption(idx, optIdx);
-                                    }}
-                                    className="cursor-pointer hover:opacity-90"
-                                  >
-                                    {opt.media_asset_id ? (
-                                      <div className="w-full h-24 rounded border border-slate-100 bg-slate-50 p-1 flex items-center justify-center">
-                                        <MediaImagePreview
-                                          mediaAssetId={opt.media_asset_id}
-                                          alt={opt.label || 'Choice image'}
-                                          className="w-full h-full object-contain"
-                                        />
-                                      </div>
-                                    ) : (
-                                      <div className="w-full py-5 text-center border border-dashed border-indigo-200 hover:border-indigo-400 rounded text-xs text-indigo-600 bg-indigo-50/20">
-                                        + Choose Image
-                                      </div>
-                                    )}
-                                  </div>
-
-                                  <input
-                                    type="text"
-                                    value={opt.label || opt.text || ''}
-                                    onChange={(e) => {
-                                      const updatedOpts = (b.options || []).map((o, i) =>
-                                        i === optIdx
-                                          ? { ...o, label: e.target.value, text: e.target.value }
-                                          : o
-                                      );
-                                      onUpdateBlock(idx, { ...b, options: updatedOpts });
-                                    }}
-                                    placeholder="Label (e.g. Bullish Engulfing)"
-                                    className="w-full text-xs p-1 border border-slate-200 rounded"
-                                  />
-                                </div>
-                              );
-                            })}
-                          </div>
-
-                          {/* Explanation for remediation */}
-                          <div className="pt-2 border-t border-indigo-100">
-                            <label className="text-[10px] font-bold text-indigo-800 uppercase block mb-1">
-                              Explanation for visual pattern recognition:
-                            </label>
-                            <textarea
-                              rows={2}
-                              value={b.evaluation?.explanation || ''}
-                              onChange={(e) =>
-                                onUpdateBlock(idx, {
-                                  ...b,
-                                  evaluation: {
-                                    ...(b.evaluation || {}),
-                                    explanation: e.target.value,
-                                    correct_option_id:
-                                      b.evaluation?.correct_option_id ||
-                                      b.options?.find((o) => o.is_correct)?.id ||
-                                      b.options?.[0]?.id,
-                                  },
-                                })
-                              }
-                              placeholder="Explain visual pattern indicators and key confirmation signals..."
-                              className="w-full text-xs p-2 bg-white border border-indigo-200 rounded focus:outline-none resize-none"
-                            />
-                          </div>
-                        </div>
-                      )}
-
-                      {/* ── TRUE_FALSE Response Editor ── */}
-                      {rType === 'TRUE_FALSE' && (
-                        <div className="mt-3 p-3.5 rounded-lg bg-emerald-50/50 border border-emerald-100 space-y-2.5">
-                          <span className="text-[11px] font-bold text-emerald-900 uppercase tracking-wider block">
-                            True / False Answer Key
-                          </span>
-                          <div className="flex items-center gap-6">
-                            {['True', 'False'].map((tfVal) => {
-                              const optId = `opt_${tfVal.toLowerCase()}`;
-                              const isCorrect =
-                                b.evaluation?.correct_option_id === optId ||
-                                b.options?.find((o) => o.id === optId)?.is_correct;
-                              return (
-                                <label
-                                  key={tfVal}
-                                  className="flex items-center gap-2 text-xs font-bold text-slate-800 cursor-pointer"
-                                >
-                                  <input
-                                    type="radio"
-                                    name={`tf_correct_${b.id || idx}`}
-                                    checked={Boolean(isCorrect)}
-                                    onChange={() => {
-                                      const tfOpts = [
-                                        { id: 'opt_true', text: 'True', is_correct: tfVal === 'True' },
-                                        { id: 'opt_false', text: 'False', is_correct: tfVal === 'False' },
-                                      ];
-                                      onUpdateBlock(idx, {
-                                        ...b,
-                                        options: tfOpts,
-                                        evaluation: {
-                                          ...(b.evaluation || {}),
-                                          correct_option_id: optId,
-                                        },
-                                        correct_option_id: optId,
-                                      });
-                                    }}
-                                  />
-                                  <span>{tfVal}</span>
-                                </label>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Actions Toolbar */}
-                  <div className="flex items-center gap-1 opacity-70 group-hover:opacity-100 transition-opacity shrink-0">
-                    {onPreviewStep && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onPreviewStep(idx);
-                        }}
-                        title="Preview this step"
-                        className="p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-blue-600"
-                      >
-                        <Play className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onMoveBlock(idx, 'UP');
-                      }}
-                      disabled={idx === 0}
-                      title="Move Up"
-                      className="p-1 rounded hover:bg-slate-100 text-slate-500 disabled:opacity-20"
-                    >
-                      <ChevronUp className="w-3.5 h-3.5" />
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onMoveBlock(idx, 'DOWN');
-                      }}
-                      disabled={idx === blocks.length - 1}
-                      title="Move Down"
-                      className="p-1 rounded hover:bg-slate-100 text-slate-500 disabled:opacity-20"
-                    >
-                      <ChevronDown className="w-3.5 h-3.5" />
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onDuplicateBlock(idx);
-                      }}
-                      title="Duplicate Block (New UUID)"
-                      className="p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-slate-800"
-                    >
-                      <Copy className="w-3.5 h-3.5" />
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onDeleteBlock(idx);
-                      }}
-                      title="Delete Block"
-                      className="p-1 rounded hover:bg-rose-50 text-slate-400 hover:text-rose-600"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              </React.Fragment>
+              </div>
             );
           })}
-
-          {/* Final insert zone after last block */}
-          <div className="group/insert relative h-5 flex items-center justify-center my-0.5">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-transparent group-hover/insert:border-blue-300 transition-colors" />
-            </div>
-            <button
-              type="button"
-              onClick={() => openPickerAt(blocks.length)}
-              className="relative z-10 opacity-0 group-hover/insert:opacity-100 transition-all flex items-center gap-1 px-2 py-0.5 bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-bold rounded-full shadow-md"
-            >
-              <Plus className="w-2.5 h-2.5" />
-              Insert block here
-            </button>
-          </div>
         </div>
 
-        {/* ── Append Block Button ── */}
         <div className="pt-2">
-          <button
-            type="button"
-            onClick={() => openPickerAt(blocks.length)}
-            className="w-full py-4 border-2 border-dashed border-slate-300 hover:border-blue-500 rounded-xl text-xs font-bold text-slate-500 hover:text-blue-600 bg-white/60 hover:bg-blue-50/40 transition-all flex items-center justify-center gap-2 group"
-          >
-            <span className="flex items-center justify-center w-6 h-6 rounded-full bg-slate-100 group-hover:bg-blue-100 group-hover:text-blue-600 transition-colors">
-              <Plus className="w-3.5 h-3.5" />
-            </span>
-            <span>Add Content or Question Block</span>
-            <span className="text-slate-300 font-normal text-[10px] group-hover:text-blue-400">— pick from 10 block types</span>
+          <button type="button" onClick={() => handleAddStep('TEXT')} className="w-full py-5 border-2 border-dashed border-indigo-300 hover:border-indigo-500 rounded-xl text-sm font-bold text-indigo-500 hover:text-indigo-700 bg-indigo-50/30 hover:bg-indigo-50/60 transition-all flex items-center justify-center gap-2.5 group">
+            <span className="flex items-center justify-center w-7 h-7 rounded-full bg-indigo-100 group-hover:bg-indigo-200 text-indigo-600 transition-colors"><Plus className="w-4 h-4" /></span>
+            <span>Add New Step</span>
+            <span className="text-indigo-300 font-normal text-[11px] group-hover:text-indigo-400">— creates a new learner screen</span>
           </button>
         </div>
       </div>
+
 
       {/* ── Block Type Picker Modal (Google Forms-style) ── */}
       {showBlockPicker && (

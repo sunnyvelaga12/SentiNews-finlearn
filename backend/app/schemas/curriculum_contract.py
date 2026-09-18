@@ -133,6 +133,9 @@ class SafeActivityCard(BaseModel):
     correct_option_ids: Optional[List[str]] = None
     media_asset_id: Optional[str] = None
     image_url: Optional[str] = None
+    page_id: Optional[str] = None
+    section_id: Optional[str] = None
+    step_title: Optional[str] = None
 
 
 class LessonExecutionContract(BaseModel):
@@ -258,6 +261,9 @@ class AuthoringActivityCard(BaseModel):
     correct_option_id: Optional[str] = None
     explanation: Optional[str] = None
     misconception_remediation: Optional[str] = None
+    page_id: Optional[str] = None
+    section_id: Optional[str] = None
+    step_title: Optional[str] = None
 
 
 class LessonAuthoringDraft(BaseModel):
