@@ -4,6 +4,11 @@ import {
   createBlock,
   groupBlocksIntoPages,
   generatePageId,
+  createEmptyStep,
+  reorderSteps,
+  deleteStep,
+  duplicateStep,
+  moveBlockToStep,
 } from '../utils/blockRegistry.js';
 
 test('Page-Grouping & Multi-Block Step Execution Suite', async (t) => {
@@ -220,6 +225,25 @@ test('Page-Grouping & Multi-Block Step Execution Suite', async (t) => {
     };
     const soloTitle = soloItem.step_title || soloItem.payload?.step_title || soloItem.title;
     assert.equal(soloTitle, 'Step 2: Practical Takeaway');
+  });
+
+  await t.test('Test 9: Moving or adding block into a step with null page_id unifies both blocks into that step', () => {
+    // Legacy / solo blocks with null page_id
+    const b1 = createBlock('HEADING', 0);
+    const b2 = createBlock('TEXT', 1);
+    const blocks = [b1, b2];
+
+    const initialPages = groupBlocksIntoPages(blocks);
+    assert.equal(initialPages.length, 2, 'Starts as 2 solo steps');
+    const step1Key = initialPages[0].pageKey;
+
+    // Move block 1 into step 1
+    const mergedBlocks = moveBlockToStep(blocks, 1, step1Key);
+    const mergedPages = groupBlocksIntoPages(mergedBlocks);
+    assert.equal(mergedPages.length, 1, 'Should now be a single step containing 2 blocks');
+    assert.equal(mergedPages[0].blocks.length, 2, 'Step 1 should now contain both blocks');
+    assert.ok(mergedBlocks[0].page_id, 'Original block should now have an explicit page_id');
+    assert.equal(mergedBlocks[0].page_id, mergedBlocks[1].page_id, 'Both blocks must share identical page_id');
   });
 });
 

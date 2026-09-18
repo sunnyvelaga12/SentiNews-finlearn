@@ -8,7 +8,7 @@ import { ReviewInbox } from './components/ReviewInbox';
 import { SourceLibrary } from './components/SourceLibrary';
 import { ContentHealthDashboard } from './components/ContentHealthDashboard';
 import { evaluatePedagogicalQuality } from './utils/pedagogicalRules';
-import { generateUUID, createBlock } from './utils/blockRegistry';
+import { generateUUID, createBlock, generatePageId } from './utils/blockRegistry';
 import { apiClient, setAdminRole } from '../../services/apiClient';
 import { Play, Edit3, AlertOctagon, BookOpen, Sparkles, CheckCircle2 } from 'lucide-react';
 export const AdminStudioPage = () => {
@@ -309,10 +309,13 @@ export const AdminStudioPage = () => {
                         }
                     }
 
+                    const initialPid = generatePageId();
                     const defaultBlocks = [
                         {
                             id: `block_${Date.now()}`,
                             order_index: 0,
+                            page_id: initialPid,
+                            section_id: initialPid,
                             content_type: 'HEADING',
                             activity_type: 'OBSERVE',
                             response_type: 'NONE',
@@ -324,6 +327,8 @@ export const AdminStudioPage = () => {
                         {
                             id: `block_${Date.now() + 1}`,
                             order_index: 1,
+                            page_id: initialPid,
+                            section_id: initialPid,
                             content_type: 'TEXT',
                             activity_type: 'OBSERVE',
                             response_type: 'NONE',

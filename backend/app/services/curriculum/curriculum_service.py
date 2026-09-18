@@ -267,6 +267,7 @@ class CurriculumContentService:
             select(
                 Lesson.id,
                 Lesson.slug,
+                Lesson.created_at,
                 LessonVersion.id,
                 LessonVersion.version_number,
                 LessonVersion.title,
@@ -274,11 +275,11 @@ class CurriculumContentService:
                 LessonVersion.concept_ids,
             )
             .join(LessonVersion, Lesson.id == LessonVersion.lesson_id)
-            .order_by(Lesson.id, LessonVersion.version_number.desc())
+            .order_by(Lesson.created_at.asc(), Lesson.id, LessonVersion.version_number.desc())
         )
         l_res = await db.execute(l_stmt)
         latest_lessons: Dict[uuid.UUID, Dict[str, Any]] = {}
-        for lid, slug, vid, vnum, title, status, cids in l_res.all():
+        for lid, slug, created_at, vid, vnum, title, status, cids in l_res.all():
             if lid not in latest_lessons:
                 latest_lessons[lid] = {
                     "id": str(lid),
@@ -287,6 +288,7 @@ class CurriculumContentService:
                     "status": status,
                     "version_id": str(vid),
                     "version_number": vnum,
+                    "created_at": created_at.isoformat() if created_at else "",
                     "concept_keys": {str(c) for c in (cids or [])},
                 }
 
@@ -304,7 +306,11 @@ class CurriculumContentService:
                         "status": lesson_info["status"],
                         "version_id": lesson_info["version_id"],
                         "version_number": lesson_info["version_number"],
+                        "created_at": lesson_info.get("created_at") or "",
                     })
+
+            # Sort unit lessons chronologically by created_at (Lesson 1: OPEN, Lesson 2: HIGH)
+            u_lessons.sort(key=lambda x: (x.get("created_at") or "", x.get("slug") or ""))
 
             unit_node = {
                 "id": str(u.id),

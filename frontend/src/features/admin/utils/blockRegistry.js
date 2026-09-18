@@ -732,18 +732,38 @@ export function moveBlockToStep(blocks = [], blockIndex, targetPageId) {
     return blocks;
   }
 
+  const pages = groupBlocksIntoPages(blocks);
+  const targetPage = pages.find((p) => (p.pageId || p.pageKey) === targetPageId);
+  if (!targetPage) {
+    return blocks;
+  }
+
+  const effectivePid = targetPage.pageId || generatePageId();
+
   const blockToMove = {
     ...blocks[blockIndex],
-    page_id: targetPageId,
-    section_id: targetPageId,
+    page_id: effectivePid,
+    section_id: effectivePid,
   };
 
   const withoutBlock = blocks.filter((_, idx) => idx !== blockIndex);
 
+  // Stamp any existing blocks in targetPage that had null page_id to also share effectivePid
+  const updatedWithoutBlock = withoutBlock.map((b) => {
+    if (targetPage.blocks.some((tb) => tb.id === b.id)) {
+      return {
+        ...b,
+        page_id: effectivePid,
+        section_id: effectivePid,
+      };
+    }
+    return b;
+  });
+
   let lastTargetIdx = -1;
-  withoutBlock.forEach((b, idx) => {
+  updatedWithoutBlock.forEach((b, idx) => {
     const pid = b.page_id || b.section_id;
-    if (pid === targetPageId) {
+    if (pid === effectivePid) {
       lastTargetIdx = idx;
     }
   });
@@ -751,12 +771,12 @@ export function moveBlockToStep(blocks = [], blockIndex, targetPageId) {
   let nextBlocks;
   if (lastTargetIdx >= 0) {
     nextBlocks = [
-      ...withoutBlock.slice(0, lastTargetIdx + 1),
+      ...updatedWithoutBlock.slice(0, lastTargetIdx + 1),
       blockToMove,
-      ...withoutBlock.slice(lastTargetIdx + 1),
+      ...updatedWithoutBlock.slice(lastTargetIdx + 1),
     ];
   } else {
-    nextBlocks = [...withoutBlock, blockToMove];
+    nextBlocks = [...updatedWithoutBlock, blockToMove];
   }
 
   nextBlocks.forEach((b, i) => { b.order_index = i; });

@@ -265,28 +265,41 @@ export const PedagogicalCanvas = ({
     }
   };
 
-  const handleAddBlockToStep = (targetPageId, blockType = 'TEXT') => {
+  const handleAddBlockToStep = (targetPageId, blockType = 'TEXT', customInsertAt = null) => {
     const page = pages.find((p) => (p.pageId || p.pageKey) === targetPageId);
-    const lastGlobalIdx = page && page.blockIndices.length > 0
+    if (!page) {
+      if (onAddBlock) onAddBlock(blockType, customInsertAt);
+      return;
+    }
+
+    const effectivePid = (page && page.pageId) ? page.pageId : generatePageId();
+    const lastGlobalIdx = page.blockIndices.length > 0
       ? page.blockIndices[page.blockIndices.length - 1]
       : blocks.length - 1;
 
-    const insertAt = lastGlobalIdx + 1;
-    const effectivePid = (page && page.pageId) ? page.pageId : (targetPageId.startsWith('__solo_') ? generatePageId() : targetPageId);
+    const insertAt = (customInsertAt !== null && customInsertAt !== undefined && customInsertAt >= 0)
+      ? customInsertAt
+      : lastGlobalIdx + 1;
 
-    let currentBlocks = blocks;
-    if ((!page?.pageId || targetPageId.startsWith('__solo_')) && page) {
-      currentBlocks = blocks.map((b, i) => {
-        if (page.blockIndices.includes(i)) {
-          return { ...b, page_id: effectivePid, section_id: effectivePid };
-        }
-        return b;
-      });
-    }
+    const stepTitle = getStepTitle(page);
+
+    // Stamp ALL existing blocks in this step with effectivePid so they share the exact same page_id
+    const currentBlocks = blocks.map((b, i) => {
+      if (page.blockIndices.includes(i)) {
+        return {
+          ...b,
+          page_id: effectivePid,
+          section_id: effectivePid,
+          ...(stepTitle && !b.step_title ? { step_title: stepTitle } : {}),
+        };
+      }
+      return b;
+    });
 
     const newBlock = createBlock(blockType, insertAt, {
       page_id: effectivePid,
       section_id: effectivePid,
+      ...(stepTitle ? { step_title: stepTitle } : {}),
     });
 
     const nextBlocks = [
@@ -307,8 +320,7 @@ export const PedagogicalCanvas = ({
     const lastGlobalIdx = page && page.blockIndices.length > 0
       ? page.blockIndices[page.blockIndices.length - 1]
       : blocks.length - 1;
-    const effectivePid = (page && page.pageId) ? page.pageId : (pageIdOrKey.startsWith('__solo_') ? generatePageId() : pageIdOrKey);
-    openPickerAt(lastGlobalIdx + 1, effectivePid);
+    openPickerAt(lastGlobalIdx + 1, pageIdOrKey);
   };
 
   const handleMergeWithPrev = (idx) => {
@@ -504,17 +516,10 @@ export const PedagogicalCanvas = ({
 
   const handlePickBlock = (blockType) => {
     setShowBlockPicker(false);
-    if (onAddBlock) {
-      if (targetInsertPageId) {
-        onAddBlock({
-          type: blockType,
-          content_type: blockType,
-          page_id: targetInsertPageId,
-          section_id: targetInsertPageId,
-        }, insertAtIdx);
-      } else {
-        onAddBlock(blockType, insertAtIdx);
-      }
+    if (targetInsertPageId) {
+      handleAddBlockToStep(targetInsertPageId, blockType, insertAtIdx);
+    } else if (onAddBlock) {
+      onAddBlock(blockType, insertAtIdx);
     }
     setInsertAtIdx(null);
     setTargetInsertPageId(null);

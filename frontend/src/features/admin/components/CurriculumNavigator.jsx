@@ -757,7 +757,13 @@ export const CurriculumNavigator = ({
                                   ) : (
                                     (mod.units || []).map((unit) => {
                                       const isUnitExpanded = expandedUnits[unit.id] !== false;
-                                      const filteredLessons = (unit.lessons || []).filter((l) => {
+                                      const sortedLessons = [...(unit.lessons || [])].sort((a, b) => {
+                                        if (a.created_at && b.created_at) {
+                                          return new Date(a.created_at) - new Date(b.created_at);
+                                        }
+                                        return 0;
+                                      });
+                                      const filteredLessons = sortedLessons.filter((l) => {
                                         const q = searchTerm.toLowerCase();
                                         const matchesSearch =
                                           q === '' ||
@@ -833,7 +839,7 @@ export const CurriculumNavigator = ({
                                                   No lessons match filter
                                                 </div>
                                               ) : (
-                                                filteredLessons.map((l) => {
+                                                filteredLessons.map((l, lIdx) => {
                                                   const isSelected = l.id === selectedLessonId;
                                                   const isDirty = isSelected && hasUnsavedChanges;
                                                   return (
@@ -862,8 +868,9 @@ export const CurriculumNavigator = ({
                                                               } shrink-0`}
                                                             />
                                                           )}
-                                                          <span className="text-xs font-semibold truncate">
-                                                            {l.title}
+                                                          <span className="text-xs font-semibold truncate flex items-center gap-1">
+                                                            <span className="text-[10px] text-slate-400 font-mono">#{lIdx + 1}</span>
+                                                            <span>{l.title}</span>
                                                           </span>
                                                         </div>
 
