@@ -219,13 +219,13 @@ class StoredBlock(BaseModel):
                 if cid not in option_ids:
                     raise ValueError(f"Correct option ID {cid} must match a valid option ID.")
 
-        # 3. IMAGE_SELECTION: options >= 2, every option requires media_asset_id, exactly 1 correct_option_id
+        # 3. IMAGE_SELECTION: options >= 2, every option requires media_asset_id or image_url, exactly 1 correct_option_id
         elif self.response_type == ResponseType.IMAGE_SELECTION:
             if not self.options or len(self.options) < 2:
                 raise ValueError("IMAGE_SELECTION requires at least 2 options.")
             for opt in self.options:
-                if not opt.get("media_asset_id") and not opt.get("image_url"):
-                    raise ValueError("Every IMAGE_SELECTION option must define a valid media_asset_id.")
+                if not opt.get("media_asset_id") and not opt.get("image_url") and not opt.get("url"):
+                    raise ValueError("Every IMAGE_SELECTION option must define a valid media_asset_id or image_url.")
             option_ids = {str(opt.get("id")) for opt in self.options if opt.get("id")}
             if len(option_ids) != len(self.options):
                 raise ValueError("All options must have unique IDs.")
@@ -249,11 +249,16 @@ class StoredBlock(BaseModel):
             if not self.evaluation or not self.evaluation.get("correct_option_id"):
                 raise ValueError("MASTERY_EVIDENCE requires evaluation.correct_option_id.")
 
-        # 6. Image blocks require media asset reference
+        # 6. Image blocks require media asset reference (unless it is an IMAGE_SELECTION question where media is in options)
         if self.content_type == ContentType.IMAGE:
-            has_media = self.media_asset_id or (self.content and (self.content.get("media_asset_id") or self.content.get("url") or self.content.get("image_url")))
+            has_media = (
+                self.media_asset_id
+                or self.image_url
+                or (self.response_type == ResponseType.IMAGE_SELECTION and self.options and any(opt.get("media_asset_id") or opt.get("image_url") or opt.get("url") for opt in self.options))
+                or (self.content and (self.content.get("media_asset_id") or self.content.get("url") or self.content.get("image_url")))
+            )
             if not has_media:
-                raise ValueError("IMAGE blocks require a media_asset_id.")
+                raise ValueError("IMAGE blocks require a media_asset_id or image_url.")
 
         return self
 
