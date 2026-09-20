@@ -57,6 +57,11 @@ export const ImageRenderer = ({ payload }) => {
   const imageUrl = rawUrl ? resolveEndpointUrl(rawUrl) : null;
   const caption = payload?.caption || payload?.content?.caption;
   const alt = payload?.alt || payload?.alt_text || caption || 'Educational financial illustration';
+  const [hasError, setHasError] = useState(false);
+
+  useEffect(() => {
+    setHasError(false);
+  }, [imageUrl, mediaId]);
 
   if (isLoading && !imageUrl) {
     return (
@@ -66,11 +71,12 @@ export const ImageRenderer = ({ payload }) => {
     );
   }
 
-  if (!imageUrl) {
+  if (!imageUrl || hasError) {
     return (
-      <div className="p-8 rounded-2xl bg-slate-50 border border-slate-200 text-center space-y-2">
+      <div className="p-6 rounded-2xl bg-slate-50 border border-slate-200 text-center space-y-2 my-3">
         <ImageIcon className="w-8 h-8 text-slate-300 mx-auto" />
-        <p className="text-xs text-slate-400 font-medium">Illustration placeholder</p>
+        <p className="text-xs text-slate-500 font-medium">{alt || 'Illustration unavailable'}</p>
+        {caption && <p className="text-[11px] text-slate-400 italic">{caption}</p>}
       </div>
     );
   }
@@ -83,6 +89,7 @@ export const ImageRenderer = ({ payload }) => {
           alt={alt}
           className="max-h-80 w-auto mx-auto object-contain rounded-xl transition-transform hover:scale-[1.01]"
           loading="lazy"
+          onError={() => setHasError(true)}
         />
       </div>
       {caption && (

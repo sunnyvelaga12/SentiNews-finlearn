@@ -4,6 +4,7 @@ Server-Authoritative Progression, Eligibility, and Module Evaluation.
 Outputs sanitized LessonExecutionContract objects with ZERO evaluation keys or answers.
 """
 import uuid
+from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional, Tuple, Set
 from enum import Enum
 from sqlalchemy import select
@@ -115,10 +116,13 @@ class ProgressionEngine:
                                 pass
                     matching_indices = [concept_order[cid] for cid in lv_cids if cid in concept_order]
                     if matching_indices:
-                        # Pedagogical sequence is defined by unit-scoped UnitConcept order_index, with lesson slug as deterministic tie-breaker
-                        matched_lessons.append((min(matching_indices), l.slug, l, lv))
-                matched_lessons.sort(key=lambda x: (x[0], x[1]))
-                lessons_for_unit = [(l, lv) for _, _, l, lv in matched_lessons]
+                        # Pedagogical sequence is defined by unit-scoped UnitConcept order_index,
+                        # then chronological entry order (created_at) so Lesson 1 is 1st entered, Lesson 2 is 2nd entered,
+                        # with lesson slug as deterministic tie-breaker
+                        created_key = l.created_at or datetime.min.replace(tzinfo=timezone.utc)
+                        matched_lessons.append((min(matching_indices), created_key, l.slug, l, lv))
+                matched_lessons.sort(key=lambda x: (x[0], x[1], x[2]))
+                lessons_for_unit = [(l, lv) for _, _, _, l, lv in matched_lessons]
 
             lesson_contracts: List[LessonExecutionContract] = []
 

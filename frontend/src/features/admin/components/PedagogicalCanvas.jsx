@@ -919,8 +919,55 @@ export const PedagogicalCanvas = ({
                                 </div>
                                 <div className="space-y-3 flex-1">
                                   <div className="flex items-center gap-2 flex-wrap">
-                                    <select value={cType} onChange={(e) => { const nextType = e.target.value; const isNextPure = ['HEADING', 'CALLOUT', 'ANALOGY', 'TABLE', 'CANDLESTICK'].includes(nextType); onUpdateBlock(globalIdx, { ...b, content_type: nextType, type: nextType, ...(isNextPure ? { response_type: 'NONE', evidence_role: 'NONE', options: undefined, evaluation: undefined, correct_option_id: undefined } : {}) }); }} onClick={(e) => e.stopPropagation()} className={`text-[11px] font-bold rounded px-2 py-0.5 border bg-white focus:outline-none focus:border-blue-500 ${config.color}`}>
-                                      <option value="HEADING">HEADING</option><option value="TEXT">TEXT</option><option value="IMAGE">IMAGE</option><option value="CALLOUT">CALLOUT</option><option value="ANALOGY">ANALOGY</option><option value="CANDLESTICK">CANDLESTICK</option><option value="TABLE">TABLE</option><option value="SCENARIO">SCENARIO</option>
+                                    <select
+                                      value={rType === 'IMAGE_SELECTION' ? 'IMAGE_SELECTION' : cType}
+                                      onChange={(e) => {
+                                        const nextType = e.target.value;
+                                        if (nextType === 'IMAGE_SELECTION') {
+                                          const opt1 = generateUUID();
+                                          const opt2 = generateUUID();
+                                          const opt3 = generateUUID();
+                                          const opt4 = generateUUID();
+                                          onUpdateBlock(globalIdx, {
+                                            ...b,
+                                            content_type: 'IMAGE',
+                                            type: 'IMAGE',
+                                            response_type: 'IMAGE_SELECTION',
+                                            activity_type: b.activity_type === 'OBSERVE' ? 'PRACTICE' : (b.activity_type || 'PRACTICE'),
+                                            evidence_role: b.evidence_role === 'NONE' ? 'FORMATIVE' : (b.evidence_role || 'FORMATIVE'),
+                                            prompt: b.prompt || content.prompt || 'Select the correct image from below of the topic:',
+                                            content: { ...content, prompt: content.prompt || b.prompt || 'Select the correct image from below of the topic:' },
+                                            options: [
+                                              { id: opt1, label: 'Option A', text: 'Option A', media_asset_id: null, is_correct: true },
+                                              { id: opt2, label: 'Option B', text: 'Option B', media_asset_id: null, is_correct: false },
+                                              { id: opt3, label: 'Option C', text: 'Option C', media_asset_id: null, is_correct: false },
+                                              { id: opt4, label: 'Option D', text: 'Option D', media_asset_id: null, is_correct: false },
+                                            ],
+                                            evaluation: { correct_option_id: opt1, explanation: 'Explanation shown after learner answers.' },
+                                            correct_option_id: opt1,
+                                          });
+                                          return;
+                                        }
+                                        const isNextPure = ['HEADING', 'CALLOUT', 'ANALOGY', 'TABLE', 'CANDLESTICK'].includes(nextType);
+                                        onUpdateBlock(globalIdx, {
+                                          ...b,
+                                          content_type: nextType,
+                                          type: nextType,
+                                          ...(isNextPure ? { response_type: 'NONE', evidence_role: 'NONE', options: undefined, evaluation: undefined, correct_option_id: undefined } : {})
+                                        });
+                                      }}
+                                      onClick={(e) => e.stopPropagation()}
+                                      className={`text-[11px] font-bold rounded px-2 py-0.5 border bg-white focus:outline-none focus:border-blue-500 ${config.color}`}
+                                    >
+                                      <option value="HEADING">HEADING</option>
+                                      <option value="TEXT">TEXT</option>
+                                      <option value="IMAGE">IMAGE (Pure Illustration)</option>
+                                      <option value="IMAGE_SELECTION">IMAGE MCQ (Select Image)</option>
+                                      <option value="CALLOUT">CALLOUT</option>
+                                      <option value="ANALOGY">ANALOGY</option>
+                                      <option value="CANDLESTICK">CANDLESTICK</option>
+                                      <option value="TABLE">TABLE</option>
+                                      <option value="SCENARIO">SCENARIO</option>
                                     </select>
                                     {isPureContent ? (<span className="text-[11px] font-bold rounded px-2 py-0.5 border bg-slate-100 text-slate-600 border-slate-200">PURE CONTENT</span>) : (
                                       <select value={rType} onChange={(e) => {
@@ -963,10 +1010,10 @@ export const PedagogicalCanvas = ({
                                           evidence_role: isInteractive && b.evidence_role === 'NONE' ? 'FORMATIVE' : b.evidence_role,
                                           options: defaultOptions,
                                           prompt: nextRType === 'IMAGE_SELECTION' && !b.prompt && !content.prompt
-                                            ? 'Select the pattern matching the described formation:'
+                                            ? 'Select the correct image from below of the topic:'
                                             : b.prompt,
                                           content: nextRType === 'IMAGE_SELECTION' && !content.prompt && !b.prompt
-                                            ? { ...content, prompt: 'Select the pattern matching the described formation:' }
+                                            ? { ...content, prompt: 'Select the correct image from below of the topic:' }
                                             : content,
                                           evaluation: isInteractive && !b.evaluation
                                             ? { correct_option_id: correctOptId, explanation: 'Explanation for learner feedback.' }
@@ -989,7 +1036,53 @@ export const PedagogicalCanvas = ({
 
                                   {cType === 'TEXT' && (<div className="space-y-1.5"><textarea value={content.text || content.body || ''} onChange={(e) => onUpdateBlock(globalIdx, { ...b, content: { ...content, text: e.target.value } })} placeholder="Write financial concept text here (Markdown supported)..." rows={4} className="w-full text-sm text-slate-700 bg-white border border-slate-200 rounded-lg p-3 focus:outline-none focus:border-blue-500 resize-y font-mono leading-relaxed" /></div>)}
 
-                                  {cType === 'IMAGE' && rType !== 'IMAGE_SELECTION' && (() => { const assetId = b.media_asset_id || content.media_asset_id; return (<div className="space-y-2 p-3 bg-blue-50/30 rounded-lg border border-blue-100"><MediaImagePreview mediaAssetId={assetId} imageUrl={b.image_url || content.image_url || content.url} alt={content.alt_text || 'Image'} className="max-h-36 max-w-full rounded-lg border border-slate-200 object-contain bg-white mx-auto block" fallbackText="No image selected" /><button type="button" onClick={(e) => { e.stopPropagation(); openMediaForBlock(globalIdx); }} className="text-[11px] font-bold text-blue-600 hover:text-blue-800 bg-white border border-blue-200 px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors"><Upload className="w-3 h-3" />{assetId ? 'Change Image' : 'Select from Media Library'}</button><input type="text" value={content.alt_text || ''} onChange={(e) => onUpdateBlock(globalIdx, { ...b, content: { ...content, alt_text: e.target.value } })} placeholder="Alt text" className="w-full text-xs border border-blue-100 rounded px-2 py-1 bg-white focus:outline-none focus:border-blue-400" /><input type="text" value={content.caption || ''} onChange={(e) => onUpdateBlock(globalIdx, { ...b, content: { ...content, caption: e.target.value } })} placeholder="Caption (optional)" className="w-full text-xs border border-blue-100 rounded px-2 py-1 bg-white focus:outline-none focus:border-blue-400" /><div className="flex items-center justify-between pt-2 border-t border-blue-100"><span className="text-[10px] text-blue-500 font-medium">Need an interactive question where learners pick an image?</span><button type="button" onClick={(e) => { e.stopPropagation(); const opt1 = generateUUID(); const opt2 = generateUUID(); const opt3 = generateUUID(); const opt4 = generateUUID(); onUpdateBlock(globalIdx, { ...b, content_type: 'IMAGE', response_type: 'IMAGE_SELECTION', activity_type: b.activity_type === 'OBSERVE' ? 'PRACTICE' : (b.activity_type || 'PRACTICE'), evidence_role: b.evidence_role === 'NONE' ? 'FORMATIVE' : (b.evidence_role || 'FORMATIVE'), prompt: b.prompt || content.prompt || 'Select the pattern matching the described formation:', content: { ...content, prompt: content.prompt || b.prompt || 'Select the pattern matching the described formation:' }, options: [{ id: opt1, label: 'Pattern A', text: 'Pattern A', media_asset_id: null, is_correct: true }, { id: opt2, label: 'Pattern B', text: 'Pattern B', media_asset_id: null, is_correct: false }, { id: opt3, label: 'Pattern C', text: 'Pattern C', media_asset_id: null, is_correct: false }, { id: opt4, label: 'Pattern D', text: 'Pattern D', media_asset_id: null, is_correct: false }], evaluation: { correct_option_id: opt1, explanation: 'Explanation for learner feedback.' }, correct_option_id: opt1 }); }} className="text-[10px] font-bold text-sky-700 bg-sky-50 hover:bg-sky-100 border border-sky-200 px-2 py-1 rounded transition-colors flex items-center gap-1 shadow-sm"><ImageIcon className="w-3 h-3 text-sky-600" />Turn into Image Selection MCQ</button></div></div>); })()}
+                                  {cType === 'IMAGE' && rType !== 'IMAGE_SELECTION' && (() => {
+                                    const assetId = b.media_asset_id || content.media_asset_id;
+                                    return (
+                                      <div className="space-y-3 p-3 bg-blue-50/30 rounded-lg border border-blue-100">
+                                        <div className="flex items-center justify-between p-2 bg-blue-100/70 rounded-lg border border-blue-200">
+                                          <div className="flex items-center gap-1.5 text-xs text-blue-900 font-semibold">
+                                            <ImageIcon className="w-4 h-4 text-blue-600 shrink-0" />
+                                            <span>Creating an Image MCQ where learners pick an image?</span>
+                                          </div>
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              const opt1 = generateUUID();
+                                              const opt2 = generateUUID();
+                                              const opt3 = generateUUID();
+                                              const opt4 = generateUUID();
+                                              onUpdateBlock(globalIdx, {
+                                                ...b,
+                                                content_type: 'IMAGE',
+                                                response_type: 'IMAGE_SELECTION',
+                                                activity_type: b.activity_type === 'OBSERVE' ? 'PRACTICE' : (b.activity_type || 'PRACTICE'),
+                                                evidence_role: b.evidence_role === 'NONE' ? 'FORMATIVE' : (b.evidence_role || 'FORMATIVE'),
+                                                prompt: b.prompt || content.prompt || 'Select the correct image from below of the topic:',
+                                                content: { ...content, prompt: content.prompt || b.prompt || 'Select the correct image from below of the topic:' },
+                                                options: [
+                                                  { id: opt1, label: 'Option A', text: 'Option A', media_asset_id: null, is_correct: true },
+                                                  { id: opt2, label: 'Option B', text: 'Option B', media_asset_id: null, is_correct: false },
+                                                  { id: opt3, label: 'Option C', text: 'Option C', media_asset_id: null, is_correct: false },
+                                                  { id: opt4, label: 'Option D', text: 'Option D', media_asset_id: null, is_correct: false },
+                                                ],
+                                                evaluation: { correct_option_id: opt1, explanation: 'Explanation shown after learner answers.' },
+                                                correct_option_id: opt1,
+                                              });
+                                            }}
+                                            className="text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded-md transition-colors shadow-sm flex items-center gap-1 shrink-0 cursor-pointer"
+                                          >
+                                            <Zap className="w-3.5 h-3.5" /> Turn into Image MCQ
+                                          </button>
+                                        </div>
+                                        <MediaImagePreview mediaAssetId={assetId} imageUrl={b.image_url || content.image_url || content.url} alt={content.alt_text || 'Image'} className="max-h-36 max-w-full rounded-lg border border-slate-200 object-contain bg-white mx-auto block" fallbackText="No image selected" />
+                                        <button type="button" onClick={(e) => { e.stopPropagation(); openMediaForBlock(globalIdx); }} className="text-[11px] font-bold text-blue-600 hover:text-blue-800 bg-white border border-blue-200 px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors"><Upload className="w-3 h-3" />{assetId ? 'Change Image' : 'Select from Media Library'}</button>
+                                        <input type="text" value={content.alt_text || ''} onChange={(e) => onUpdateBlock(globalIdx, { ...b, content: { ...content, alt_text: e.target.value } })} placeholder="Alt text" className="w-full text-xs border border-blue-100 rounded px-2 py-1 bg-white focus:outline-none focus:border-blue-400" />
+                                        <input type="text" value={content.caption || ''} onChange={(e) => onUpdateBlock(globalIdx, { ...b, content: { ...content, caption: e.target.value } })} placeholder="Caption (optional)" className="w-full text-xs border border-blue-100 rounded px-2 py-1 bg-white focus:outline-none focus:border-blue-400" />
+                                      </div>
+                                    );
+                                  })()}
 
                                   {cType === 'CALLOUT' && (<div className="space-y-2 p-3 bg-amber-50/50 rounded-lg border border-amber-100"><select value={content.callout_type || content.variant || 'TIP'} onChange={(e) => onUpdateBlock(globalIdx, { ...b, content: { ...content, callout_type: e.target.value, variant: e.target.value } })} className="text-xs font-bold border border-amber-200 rounded px-2 py-1 bg-white"><option value="TIP">💡 Tip</option><option value="RULE">📏 Rule</option><option value="WARNING">⚠️ Warning</option><option value="KEY_TAKEAWAY">🔑 Key Takeaway</option></select><textarea value={content.text || ''} onChange={(e) => onUpdateBlock(globalIdx, { ...b, content: { ...content, text: e.target.value } })} placeholder="Callout text..." rows={2} className="w-full text-sm border border-amber-200 rounded p-2 bg-white focus:outline-none focus:border-amber-500" /></div>)}
 
@@ -1028,7 +1121,7 @@ export const PedagogicalCanvas = ({
                                       <div className="flex items-center justify-between">
                                         <span className="text-[10px] font-bold text-sky-900 uppercase tracking-wider flex items-center gap-1.5">
                                           <ImageIcon className="w-3.5 h-3.5 text-sky-600" />
-                                          Visual Discrimination Question
+                                          Visual Discrimination Question (Image MCQ)
                                         </span>
                                       </div>
                                       <div className="space-y-1">
@@ -1047,7 +1140,7 @@ export const PedagogicalCanvas = ({
                                               content: { ...content, prompt: val },
                                             });
                                           }}
-                                          placeholder="e.g. Which of the following candlestick patterns indicates a bullish reversal?"
+                                          placeholder="e.g. Select the correct image from below of the candlestick topic..."
                                           className="w-full text-xs font-semibold bg-white border border-sky-200 rounded p-2 resize-none focus:border-sky-400 focus:outline-none"
                                         />
                                       </div>
@@ -1073,13 +1166,13 @@ export const PedagogicalCanvas = ({
 
                                   {rType !== 'NONE' && rType !== 'TRUE_FALSE' && rType !== 'IMAGE_SELECTION' && (<div className="space-y-2 p-3 bg-green-50/30 rounded-lg border border-green-100"><div className="text-[10px] font-black uppercase text-green-800 flex items-center gap-1.5"><Zap className="w-3 h-3" /> Answer Options</div>{(b.options || []).map((opt, oIdx) => { const isCorrect = opt.is_correct || (b.evaluation?.correct_option_id === opt.id) || (b.correct_option_id === opt.id); return (<div key={opt.id || oIdx} className="flex items-center gap-2"><button type="button" onClick={(e) => { e.stopPropagation(); const updatedOpts = b.options.map((o) => ({ ...o, is_correct: o.id === opt.id })); onUpdateBlock(globalIdx, { ...b, options: updatedOpts, evaluation: { ...(b.evaluation || {}), correct_option_id: opt.id }, correct_option_id: opt.id }); }} className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${isCorrect ? 'border-green-500 bg-green-500' : 'border-slate-300 bg-white hover:border-green-400'}`}>{isCorrect && <CheckCircle2 className="w-3 h-3 text-white" />}</button><input type="text" value={opt.text ?? opt.label ?? ''} onChange={(e) => { const updatedOpts = b.options.map((o, i2) => i2 === oIdx ? { ...o, text: e.target.value, label: e.target.value } : o); onUpdateBlock(globalIdx, { ...b, options: updatedOpts }); }} onClick={(e) => e.stopPropagation()} placeholder={`Option ${oIdx + 1}`} className="flex-1 text-sm border border-slate-200 rounded px-2 py-1 bg-white focus:outline-none focus:border-blue-500" /><button type="button" onClick={(e) => { e.stopPropagation(); const filteredOpts = b.options.filter((_, i2) => i2 !== oIdx); onUpdateBlock(globalIdx, { ...b, options: filteredOpts }); }} className="p-0.5 rounded hover:bg-rose-50 text-slate-300 hover:text-rose-500"><XCircle className="w-3.5 h-3.5" /></button></div>); })}<button type="button" onClick={(e) => { e.stopPropagation(); const newOpt = { id: generateUUID(), text: '', label: '', is_correct: false }; onUpdateBlock(globalIdx, { ...b, options: [...(b.options || []), newOpt] }); }} className="text-[11px] font-bold text-green-700 hover:text-green-900 flex items-center gap-1"><Plus className="w-3 h-3" /> Add Option</button><textarea value={b.evaluation?.explanation || ''} onChange={(e) => onUpdateBlock(globalIdx, { ...b, evaluation: { ...(b.evaluation || {}), explanation: e.target.value } })} onClick={(e) => e.stopPropagation()} placeholder="Explanation shown after learner answers..." rows={2} className="w-full text-xs border border-green-200 rounded p-2 bg-white focus:outline-none focus:border-green-500" /></div>)}
 
-                                  {/* ── Dedicated IMAGE_SELECTION Visual Pattern Choices Editor ── */}
+                                  {/* ── Dedicated IMAGE_SELECTION Visual Pattern Choices Editor (Mirrors Normal MCQ with Image Slots) ── */}
                                   {rType === 'IMAGE_SELECTION' && (
                                     <div className="mt-3 p-3.5 rounded-lg bg-sky-50/50 border border-sky-200 space-y-3">
                                       <div className="flex items-center justify-between">
                                         <div className="flex items-center gap-1.5 text-[11px] font-extrabold text-sky-900 uppercase tracking-wider">
-                                          <ImageIcon className="w-3.5 h-3.5 text-sky-600" />
-                                          <span>Visual Pattern Choices (Image Selection)</span>
+                                          <Zap className="w-3.5 h-3.5 text-sky-600" />
+                                          <span>Answer Options (Image Choices)</span>
                                         </div>
                                         <button
                                           type="button"
@@ -1094,21 +1187,22 @@ export const PedagogicalCanvas = ({
                                                 ...existing,
                                                 {
                                                   id: newOptId,
-                                                  label: `Choice ${newIdx}`,
-                                                  text: `Choice ${newIdx}`,
+                                                  label: `Option ${String.fromCharCode(64 + newIdx)}`,
+                                                  text: `Option ${String.fromCharCode(64 + newIdx)}`,
                                                   media_asset_id: null,
                                                   is_correct: false,
                                                 },
                                               ],
                                             });
                                           }}
-                                          className="text-[11px] font-bold text-sky-700 hover:text-sky-900 flex items-center gap-1 bg-white border border-sky-200 px-2 py-0.5 rounded shadow-sm hover:bg-sky-50 transition-colors"
+                                          className="text-[11px] font-bold text-sky-700 hover:text-sky-900 flex items-center gap-1 bg-white border border-sky-200 px-2.5 py-1 rounded shadow-sm hover:bg-sky-50 transition-colors cursor-pointer"
                                         >
-                                          <Plus className="w-3 h-3" /> Add Visual Choice
+                                          <Plus className="w-3 h-3" /> Add Option
                                         </button>
                                       </div>
 
-                                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                      {/* Options List (Clean, identical to normal MCQ + Image Box) */}
+                                      <div className="space-y-2.5">
                                         {(b.options || []).map((opt, optIdx) => {
                                           const isCorrect =
                                             b.evaluation?.correct_option_id === opt.id ||
@@ -1117,119 +1211,92 @@ export const PedagogicalCanvas = ({
                                           return (
                                             <div
                                               key={opt.id || optIdx}
-                                              className={`p-3 rounded-xl border bg-white space-y-2.5 transition-all ${
+                                              className={`p-2.5 rounded-xl border bg-white flex flex-col sm:flex-row items-start sm:items-center gap-3 transition-all ${
                                                 isCorrect
                                                   ? 'border-sky-500 ring-2 ring-sky-500/20 shadow-sm'
                                                   : 'border-slate-200 hover:border-slate-300'
                                               }`}
                                             >
-                                              <div className="flex items-center justify-between">
-                                                <label className="flex items-center gap-1.5 text-xs font-bold text-slate-800 cursor-pointer">
-                                                  <input
-                                                    type="radio"
-                                                    name={`img_correct_${b.id || globalIdx}`}
-                                                    checked={Boolean(isCorrect)}
-                                                    onChange={() => {
-                                                      const updatedOpts = (b.options || []).map((o) => ({
-                                                        ...o,
-                                                        is_correct: o.id === opt.id,
-                                                      }));
-                                                      onUpdateBlock(globalIdx, {
-                                                        ...b,
-                                                        options: updatedOpts,
-                                                        evaluation: {
-                                                          ...(b.evaluation || {}),
-                                                          correct_option_id: opt.id,
-                                                        },
-                                                        correct_option_id: opt.id,
-                                                      });
-                                                    }}
-                                                    className="text-sky-600 focus:ring-sky-500"
-                                                  />
-                                                  <span className={isCorrect ? 'text-sky-700 font-extrabold' : 'text-slate-700'}>
-                                                    {isCorrect ? '✓ Correct Choice' : 'Mark as Correct'}
-                                                  </span>
-                                                </label>
-                                                <button
-                                                  type="button"
-                                                  onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    const updatedOpts = (b.options || []).filter(
-                                                      (_, i) => i !== optIdx
-                                                    );
-                                                    const wasCorrect =
-                                                      b.evaluation?.correct_option_id === opt.id ||
-                                                      b.correct_option_id === opt.id ||
-                                                      opt.is_correct;
-                                                    const nextCorrectId = wasCorrect
-                                                      ? updatedOpts[0]?.id || null
-                                                      : b.evaluation?.correct_option_id || b.correct_option_id;
-                                                    const finalOpts = wasCorrect
-                                                      ? updatedOpts.map((o, idx) => ({ ...o, is_correct: idx === 0 }))
-                                                      : updatedOpts;
-                                                    onUpdateBlock(globalIdx, {
-                                                      ...b,
-                                                      options: finalOpts,
-                                                      evaluation: {
-                                                        ...(b.evaluation || {}),
-                                                        correct_option_id: nextCorrectId,
-                                                      },
-                                                      correct_option_id: nextCorrectId,
-                                                    });
-                                                  }}
-                                                  className="p-1 rounded hover:bg-rose-50 text-slate-300 hover:text-rose-500"
-                                                  title="Remove choice"
-                                                >
-                                                  <XCircle className="w-3.5 h-3.5" />
-                                                </button>
-                                              </div>
-
-                                              {/* Dynamic Media Image Preview with Click-to-Select */}
-                                              <div
+                                              {/* Radio selector for correct answer */}
+                                              <button
+                                                type="button"
                                                 onClick={(e) => {
                                                   e.stopPropagation();
-                                                  openMediaForOption(globalIdx, optIdx);
+                                                  const updatedOpts = (b.options || []).map((o) => ({
+                                                    ...o,
+                                                    is_correct: o.id === opt.id,
+                                                  }));
+                                                  onUpdateBlock(globalIdx, {
+                                                    ...b,
+                                                    options: updatedOpts,
+                                                    evaluation: {
+                                                      ...(b.evaluation || {}),
+                                                      correct_option_id: opt.id,
+                                                    },
+                                                    correct_option_id: opt.id,
+                                                  });
                                                 }}
-                                                className="cursor-pointer group relative"
+                                                className={`w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 cursor-pointer transition-colors ${
+                                                  isCorrect
+                                                    ? 'border-sky-600 bg-sky-600 text-white'
+                                                    : 'border-slate-300 bg-white hover:border-sky-400'
+                                                }`}
+                                                title={isCorrect ? 'Correct Option' : 'Mark as Correct'}
                                               >
+                                                {isCorrect && <CheckCircle2 className="w-4 h-4 text-white" />}
+                                              </button>
+
+                                              {/* Image Slot for this option */}
+                                              <div className="shrink-0">
                                                 {opt.media_asset_id ? (
-                                                  <div className="w-full h-28 rounded-lg border border-slate-200 bg-slate-50 p-1 flex items-center justify-center relative overflow-hidden group-hover:border-sky-400 transition-colors">
-                                                    <MediaImagePreview
-                                                      mediaAssetId={opt.media_asset_id}
-                                                      alt={opt.label || opt.text || 'Choice image'}
-                                                      className="w-full h-full object-contain"
-                                                    />
-                                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-bold gap-1 rounded-lg">
-                                                      <Upload className="w-3.5 h-3.5" /> Change Image
+                                                  <div className="flex items-center gap-1.5">
+                                                    <div
+                                                      onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        openMediaForOption(globalIdx, optIdx);
+                                                      }}
+                                                      className="w-16 h-16 rounded-lg border border-slate-200 bg-slate-50 p-0.5 cursor-pointer hover:border-sky-400 transition-colors overflow-hidden flex items-center justify-center relative group"
+                                                      title="Click to change image"
+                                                    >
+                                                      <MediaImagePreview
+                                                        mediaAssetId={opt.media_asset_id}
+                                                        alt={opt.label || opt.text || 'Choice'}
+                                                        className="w-full h-full object-contain"
+                                                      />
+                                                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[9px] font-bold rounded-lg">
+                                                        Change
+                                                      </div>
                                                     </div>
+                                                    <button
+                                                      type="button"
+                                                      onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        const nextOptions = [...(b.options || [])];
+                                                        nextOptions[optIdx] = { ...nextOptions[optIdx], media_asset_id: null };
+                                                        onUpdateBlock(globalIdx, { ...b, options: nextOptions });
+                                                      }}
+                                                      className="text-[10px] text-rose-500 hover:text-rose-700 font-medium p-1"
+                                                      title="Remove image from option"
+                                                    >
+                                                      ✕
+                                                    </button>
                                                   </div>
                                                 ) : (
-                                                  <div className="w-full py-6 text-center border-2 border-dashed border-sky-200 hover:border-sky-400 rounded-lg text-xs font-bold text-sky-600 bg-sky-50/30 hover:bg-sky-50/60 transition-colors flex flex-col items-center justify-center gap-1">
-                                                    <Upload className="w-4 h-4 text-sky-500" />
-                                                    <span>+ Choose Image</span>
-                                                    <span className="text-[10px] text-slate-400 font-normal">Select from library or upload</span>
-                                                  </div>
-                                                )}
-                                              </div>
-
-                                              {opt.media_asset_id && (
-                                                <div className="flex items-center justify-between text-[10px] text-slate-400">
-                                                  <span className="font-mono truncate max-w-[150px]">ID: {String(opt.media_asset_id).slice(0, 8)}...</span>
                                                   <button
                                                     type="button"
                                                     onClick={(e) => {
                                                       e.stopPropagation();
-                                                      const nextOptions = [...(b.options || [])];
-                                                      nextOptions[optIdx] = { ...nextOptions[optIdx], media_asset_id: null };
-                                                      onUpdateBlock(globalIdx, { ...b, options: nextOptions });
+                                                      openMediaForOption(globalIdx, optIdx);
                                                     }}
-                                                    className="text-rose-500 hover:text-rose-700 font-medium"
+                                                    className="h-16 px-3 border-2 border-dashed border-sky-300 hover:border-sky-500 rounded-lg text-[11px] font-bold text-sky-700 bg-sky-50/50 hover:bg-sky-50 transition-colors flex items-center gap-1.5 cursor-pointer"
                                                   >
-                                                    Remove Image
+                                                    <Upload className="w-3.5 h-3.5 text-sky-600" />
+                                                    <span>+ Choose Image</span>
                                                   </button>
-                                                </div>
-                                              )}
+                                                )}
+                                              </div>
 
+                                              {/* Option Label / Text Input */}
                                               <input
                                                 type="text"
                                                 value={opt.label || opt.text || ''}
@@ -1242,17 +1309,58 @@ export const PedagogicalCanvas = ({
                                                   );
                                                   onUpdateBlock(globalIdx, { ...b, options: updatedOpts });
                                                 }}
-                                                placeholder="Choice Label (e.g. Bullish Hammer, Inverted Hammer)"
-                                                className="w-full text-xs p-1.5 border border-slate-200 rounded focus:border-sky-500 focus:outline-none"
+                                                placeholder={`Option ${String.fromCharCode(65 + optIdx)} (e.g. Pattern name or description)`}
+                                                className="flex-1 w-full text-xs p-2 border border-slate-200 rounded-lg focus:border-sky-500 focus:outline-none bg-slate-50/50 focus:bg-white"
                                               />
+
+                                              {/* Correct badge */}
+                                              {isCorrect && (
+                                                <span className="text-[10px] font-bold text-sky-700 bg-sky-50 border border-sky-200 px-2 py-0.5 rounded-full shrink-0">
+                                                  ✓ Correct Answer
+                                                </span>
+                                              )}
+
+                                              {/* Delete Option button */}
+                                              <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  const updatedOpts = (b.options || []).filter(
+                                                    (_, i) => i !== optIdx
+                                                  );
+                                                  const wasCorrect =
+                                                    b.evaluation?.correct_option_id === opt.id ||
+                                                    b.correct_option_id === opt.id ||
+                                                    opt.is_correct;
+                                                  const nextCorrectId = wasCorrect
+                                                    ? updatedOpts[0]?.id || null
+                                                    : b.evaluation?.correct_option_id || b.correct_option_id;
+                                                  const finalOpts = wasCorrect
+                                                    ? updatedOpts.map((o, idx) => ({ ...o, is_correct: idx === 0 }))
+                                                    : updatedOpts;
+                                                  onUpdateBlock(globalIdx, {
+                                                    ...b,
+                                                    options: finalOpts,
+                                                    evaluation: {
+                                                      ...(b.evaluation || {}),
+                                                      correct_option_id: nextCorrectId,
+                                                    },
+                                                    correct_option_id: nextCorrectId,
+                                                  });
+                                                }}
+                                                className="p-1 rounded hover:bg-rose-50 text-slate-300 hover:text-rose-500 shrink-0"
+                                                title="Remove option"
+                                              >
+                                                <XCircle className="w-4 h-4" />
+                                              </button>
                                             </div>
                                           );
                                         })}
                                       </div>
 
                                       {/* Explanation for remediation */}
-                                      <div className="pt-2 border-t border-sky-100">
-                                        <label className="text-[10px] font-bold text-sky-800 uppercase block mb-1">
+                                      <div className="pt-2 border-t border-sky-100 space-y-1">
+                                        <label className="text-[10px] font-bold text-sky-800 uppercase block">
                                           Explanation shown after learner answers:
                                         </label>
                                         <textarea
