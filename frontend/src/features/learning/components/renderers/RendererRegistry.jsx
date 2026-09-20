@@ -72,6 +72,9 @@ export const ImageRenderer = ({ payload }) => {
   }
 
   if (!imageUrl || hasError) {
+    if (payload?.response_type === 'IMAGE_SELECTION' || (payload?.options && payload.options.length > 0)) {
+      return null;
+    }
     return (
       <div className="p-6 rounded-2xl bg-slate-50 border border-slate-200 text-center space-y-2 my-3">
         <ImageIcon className="w-8 h-8 text-slate-300 mx-auto" />

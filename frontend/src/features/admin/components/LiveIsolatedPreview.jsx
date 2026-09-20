@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { ActivityRenderer } from '../../learning/components/ActivityRenderer';
 import { Monitor, Tablet, Smartphone, RotateCcw, ArrowLeft, ArrowRight, ShieldCheck, CheckCircle2, XCircle, AlertCircle, HelpCircle, Layers } from 'lucide-react';
-import { getCachedMediaUrl } from '../utils/mediaResolver';
+import { getCachedMediaUrl, resolveMediaAsset } from '../utils/mediaResolver';
 import { resolveEndpointUrl } from '../../../services/apiClient';
 import { ErrorBoundary } from '../../../components/ErrorBoundary';
 import { groupBlocksIntoPages } from '../utils/blockRegistry';
@@ -41,6 +41,28 @@ export const LiveIsolatedPreview = ({
     const [userAnswers, setUserAnswers] = useState({});
     const [submittedSteps, setSubmittedSteps] = useState({});
     const [revealedHints, setRevealedHints] = useState({});
+    const [mediaCacheVersion, setMediaCacheVersion] = useState(0);
+
+    // Pre-cache all media assets referenced in blocks and options for instant preview
+    useEffect(() => {
+        let isMounted = true;
+        const idsToResolve = new Set();
+        (blocks || []).forEach(b => {
+            if (b.media_asset_id) idsToResolve.add(String(b.media_asset_id));
+            if (b.content?.media_asset_id) idsToResolve.add(String(b.content.media_asset_id));
+            (b.options || []).forEach(opt => {
+                if (opt.media_asset_id) idsToResolve.add(String(opt.media_asset_id));
+            });
+        });
+
+        const unresolved = Array.from(idsToResolve).filter(id => !getCachedMediaUrl(id));
+        if (unresolved.length > 0) {
+            Promise.all(unresolved.map(id => resolveMediaAsset(id))).then(() => {
+                if (isMounted) setMediaCacheVersion(v => v + 1);
+            });
+        }
+        return () => { isMounted = false; };
+    }, [blocks]);
 
     const currentPage = pages[currentStep] || { blocks: [], blockIndices: [], isInteractive: false };
     const interactiveBlock = currentPage.blocks?.find(
@@ -69,7 +91,7 @@ export const LiveIsolatedPreview = ({
                 is_correct: o.is_correct === true || o.id === correctId,
             };
         });
-    }, [targetQuestionBlock]);
+    }, [targetQuestionBlock, mediaCacheVersion]);
     const hasImageOptions = useMemo(() => options.some(o => o.image_url || o.media_asset_id), [options]);
     const correctOptionId = useMemo(() => {
         const found = options.find((o) => o.is_correct);
@@ -246,10 +268,13 @@ export const LiveIsolatedPreview = ({
                       payload={{
                         ...(b.content || {}),
                         ...(b.payload || {}),
-                        media_asset_id: b.media_asset_id,
+                        response_type: b.response_type,
+                        options: b.options,
+                        media_asset_id: b.media_asset_id || b.content?.media_asset_id,
+                        image_url: b.image_url || b.content?.image_url || (b.media_asset_id ? getCachedMediaUrl(b.media_asset_id) : null),
                         url: b.media_asset_id
                           ? getCachedMediaUrl(b.media_asset_id)
-                          : (b.content?.url || b.content?.image_url),
+                          : (b.image_url || b.content?.url || b.content?.image_url),
                       }}
                       provenance={b.source_citation || b.provenance}
                       options={null}
@@ -271,10 +296,13 @@ export const LiveIsolatedPreview = ({
                   payload={{
                     ...(block.content || {}),
                     ...(block.payload || {}),
-                    media_asset_id: block.media_asset_id,
+                    response_type: block.response_type,
+                    options: block.options,
+                    media_asset_id: block.media_asset_id || block.content?.media_asset_id,
+                    image_url: block.image_url || block.content?.image_url || (block.media_asset_id ? getCachedMediaUrl(block.media_asset_id) : null),
                     url: block.media_asset_id
                       ? getCachedMediaUrl(block.media_asset_id)
-                      : (block.content?.url || block.content?.image_url),
+                      : (block.image_url || block.content?.url || block.content?.image_url),
                   }}
                   provenance={block.source_citation || block.provenance}
                   options={null}
