@@ -169,4 +169,35 @@ test('LCMS Block Synchronization & Semantic State Suite', async (t) => {
     assert.equal(getBlockTitle(imageBlock, 'IMAGE'), 'Image');
   });
 
+  await t.test('Test K: IMAGE_SELECTION block creation, options, and validation', () => {
+    const imgSelBlock = createBlock('IMAGE_SELECTION', 0);
+    assert.equal(imgSelBlock.response_type, 'IMAGE_SELECTION');
+    assert.equal(imgSelBlock.content_type, 'IMAGE');
+    assert.equal(BLOCK_CAPABILITIES['IMAGE_SELECTION'].isInteractive, true);
+    assert.ok(imgSelBlock.options && imgSelBlock.options.length === 4, 'Default IMAGE_SELECTION must have 4 choices');
+
+    // Each option must have id, label, text, and media_asset_id
+    for (const opt of imgSelBlock.options) {
+      assert.ok(opt.id, 'Option must have an ID');
+      assert.ok(opt.label, 'Option must have a label');
+      assert.ok(opt.text, 'Option must have text');
+      assert.equal(opt.media_asset_id, null, 'Initial media_asset_id should be null');
+    }
+
+    // Default block with null media_asset_id fails validation until media is selected
+    const initialErrors = validateBlock(imgSelBlock);
+    assert.ok(initialErrors.some((e) => e.includes('media asset')), 'Should report missing media assets');
+
+    // Assigning media_asset_id to each option satisfies validation
+    const completedBlock = {
+      ...imgSelBlock,
+      options: imgSelBlock.options.map((o) => ({
+        ...o,
+        media_asset_id: `asset_${o.id}`,
+      })),
+    };
+    const finalErrors = validateBlock(completedBlock);
+    assert.equal(finalErrors.length, 0, 'Completed IMAGE_SELECTION block must pass validation');
+  });
+
 });

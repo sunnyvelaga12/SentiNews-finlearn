@@ -328,10 +328,10 @@ export const BLOCK_CAPABILITIES = {
           prompt: 'Select the pattern matching the described formation:',
         },
         options: [
-          { id: opt1, media_asset_id: null, label: 'Pattern A' },
-          { id: opt2, media_asset_id: null, label: 'Pattern B' },
-          { id: opt3, media_asset_id: null, label: 'Pattern C' },
-          { id: opt4, media_asset_id: null, label: 'Pattern D' },
+          { id: opt1, media_asset_id: null, label: 'Pattern A', text: 'Pattern A', is_correct: true },
+          { id: opt2, media_asset_id: null, label: 'Pattern B', text: 'Pattern B', is_correct: false },
+          { id: opt3, media_asset_id: null, label: 'Pattern C', text: 'Pattern C', is_correct: false },
+          { id: opt4, media_asset_id: null, label: 'Pattern D', text: 'Pattern D', is_correct: false },
         ],
         evaluation: {
           correct_option_id: opt1,
@@ -495,7 +495,12 @@ export function createBlock(type, orderIndex, customProps = {}) {
  * Validates any block using its registered capability validator.
  */
 export function validateBlock(block) {
-  const capability = BLOCK_CAPABILITIES[block.content_type || block.type];
+  const key = (block.type && BLOCK_CAPABILITIES[block.type])
+    ? block.type
+    : (block.response_type && BLOCK_CAPABILITIES[block.response_type])
+      ? block.response_type
+      : (block.content_type || block.type);
+  const capability = BLOCK_CAPABILITIES[key];
   if (!capability) {
     return [`Unknown block type: ${block.content_type || block.type}`];
   }

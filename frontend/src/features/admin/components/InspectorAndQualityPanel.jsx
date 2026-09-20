@@ -39,6 +39,8 @@ export const InspectorAndQualityPanel = ({ selectedBlock, selectedBlockIndex = 0
         const newOption = {
             id: newId,
             text: `Option ${currentOptions.length + 1}`,
+            label: `Option ${currentOptions.length + 1}`,
+            media_asset_id: null,
             is_correct: currentOptions.length === 0,
         };
         onUpdateSelectedBlock({
@@ -50,7 +52,7 @@ export const InspectorAndQualityPanel = ({ selectedBlock, selectedBlockIndex = 0
         if (!selectedBlock)
             return;
         const options = [...(selectedBlock.options || [])];
-        options[idx] = { ...options[idx], text };
+        options[idx] = { ...options[idx], text, label: text };
         onUpdateSelectedBlock({ ...selectedBlock, options });
     };
     const handleSetCorrectOption = (idx) => {
@@ -456,11 +458,16 @@ export const InspectorAndQualityPanel = ({ selectedBlock, selectedBlockIndex = 0
                             />
                             <input
                               type="text"
-                              value={opt.text}
+                              value={opt.text ?? opt.label ?? ''}
                               onChange={(e) => handleOptionChange(idx, e.target.value)}
                               placeholder={`Option ${idx + 1}`}
                               className="flex-1 text-xs p-1.5 border border-slate-200 rounded focus:outline-none focus:border-blue-500"
                             />
+                            {selectedBlock.response_type === 'IMAGE_SELECTION' && (
+                              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border shrink-0 ${opt.media_asset_id ? 'bg-sky-50 text-sky-700 border-sky-200' : 'bg-rose-50 text-rose-600 border-rose-200'}`}>
+                                {opt.media_asset_id ? '✓ Image' : 'No image'}
+                              </span>
+                            )}
                             <button onClick={() => handleRemoveOption(idx)} className="p-1 text-slate-400 hover:text-rose-600 rounded">
                               <Trash2 className="w-3.5 h-3.5"/>
                             </button>
