@@ -38,6 +38,7 @@ import {
 } from 'lucide-react';
 import { MediaLibraryModal } from './MediaLibraryModal';
 import { useMediaAsset, cacheMediaAsset } from '../utils/mediaResolver';
+import { resolveEndpointUrl } from '../../../services/apiClient';
 import {
   BLOCK_CAPABILITIES,
   CONTENT_BLOCK_TYPES,
