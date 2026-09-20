@@ -5,7 +5,6 @@ import { InspectorAndQualityPanel } from './components/InspectorAndQualityPanel'
 import { GovernanceBar } from './components/GovernanceBar';
 import { LiveIsolatedPreview } from './components/LiveIsolatedPreview';
 import { ReviewInbox } from './components/ReviewInbox';
-import { SourceLibrary } from './components/SourceLibrary';
 import { ContentHealthDashboard } from './components/ContentHealthDashboard';
 import { evaluatePedagogicalQuality } from './utils/pedagogicalRules';
 import { generateUUID, createBlock, generatePageId } from './utils/blockRegistry';
@@ -1182,16 +1181,13 @@ export const AdminStudioPage = () => {
           </div>
         </div>
 
-        {/* Center: Surface Tabs (Studio · Reviews · Sources · Health) */}
+        {/* Center: Surface Tabs (Studio · Reviews · Health) */}
         <div className="hidden lg:flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs font-semibold">
           <button onClick={() => setSurfaceTab('STUDIO')} className={`px-3 py-1 rounded-md transition-colors ${surfaceTab === 'STUDIO' ? 'bg-white text-blue-600 shadow-sm font-bold' : 'text-slate-600'}`}>
             Studio
           </button>
           <button onClick={() => setSurfaceTab('REVIEWS')} className={`px-3 py-1 rounded-md transition-colors ${surfaceTab === 'REVIEWS' ? 'bg-white text-blue-600 shadow-sm font-bold' : 'text-slate-600'}`}>
             Reviews
-          </button>
-          <button onClick={() => setSurfaceTab('SOURCES')} className={`px-3 py-1 rounded-md transition-colors ${surfaceTab === 'SOURCES' ? 'bg-white text-blue-600 shadow-sm font-bold' : 'text-slate-600'}`}>
-            Sources
           </button>
           <button onClick={() => setSurfaceTab('HEALTH')} className={`px-3 py-1 rounded-md transition-colors ${surfaceTab === 'HEALTH' ? 'bg-white text-blue-600 shadow-sm font-bold' : 'text-slate-600'}`}>
             Content Health
@@ -1257,21 +1253,6 @@ export const AdminStudioPage = () => {
                             setBlocks(data.blocks);
                     }
                 });
-            }}/>) : surfaceTab === 'SOURCES' ? (<SourceLibrary onAttachSource={(source) => {
-                if (blocks[activeBlockIndex]) {
-                    handleUpdateBlock(activeBlockIndex, {
-                        ...blocks[activeBlockIndex],
-                        source_citation: {
-                            provider: source.provider,
-                            instrument: source.instrument,
-                            date: source.date,
-                            timeframe: source.timeframe,
-                            source_url: source.source_url,
-                            jurisdiction: source.jurisdiction,
-                        },
-                    });
-                    setSurfaceTab('STUDIO');
-                }
             }}/>) : surfaceTab === 'HEALTH' ? (
               <ContentHealthDashboard {...healthStats} />
             ) : (
