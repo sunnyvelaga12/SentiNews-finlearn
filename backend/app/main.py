@@ -164,8 +164,43 @@ app.include_router(admin_router, prefix=api_v1_prefix, tags=["Admin"])
 app.include_router(seo_router, prefix=api_v1_prefix, tags=["SEO"])
 
 import os
+import base64
+from fastapi.responses import Response, FileResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import select
+from app.core.database import AsyncSessionLocal
+from app.models.media import MediaAsset
 
 _uploads_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../uploads"))
-os.makedirs(os.path.join(_uploads_dir, "media"), exist_ok=True)
+_media_dir = os.path.join(_uploads_dir, "media")
+os.makedirs(_media_dir, exist_ok=True)
+
+@app.get("/uploads/media/{storage_key}")
+async def serve_media_asset(storage_key: str):
+    file_path = os.path.join(_media_dir, storage_key)
+    if os.path.isfile(file_path):
+        return FileResponse(file_path)
+
+    # Reconstitute from persistent database if file is absent on ephemeral disk
+    try:
+        async with AsyncSessionLocal() as session:
+            stmt = select(MediaAsset).where(
+                (MediaAsset.storage_key == storage_key) |
+                (MediaAsset.url == f"/uploads/media/{storage_key}")
+            )
+            res = await session.execute(stmt)
+            asset = res.scalar_one_or_none()
+            if asset and asset.content_base64:
+                file_bytes = base64.b64decode(asset.content_base64)
+                try:
+                    with open(file_path, "wb") as f:
+                        f.write(file_bytes)
+                except Exception:
+                    pass
+                return Response(content=file_bytes, media_type=asset.mime_type or "image/png")
+    except Exception as e:
+        print(f"Error restoring media asset {storage_key}: {e}")
+
+    raise HTTPException(status_code=404, detail="IMAGE_NOT_FOUND")
+
 app.mount("/uploads", StaticFiles(directory=_uploads_dir), name="uploads")

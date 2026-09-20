@@ -1,5 +1,6 @@
 import os
 import uuid
+import base64
 from typing import Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, Header
 from pydantic import BaseModel
@@ -777,6 +778,7 @@ async def upload_media_asset(
         caption=caption,
         checksum=checksum,
         uploaded_by=valid_uploader_id,
+        content_base64=base64.b64encode(contents).decode("utf-8"),
     )
     db.add(media_asset)
     await db.commit()

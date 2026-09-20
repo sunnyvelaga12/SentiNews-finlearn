@@ -28,4 +28,5 @@ class MediaAsset(Base):
     source = Column(String(255), nullable=True)
     checksum = Column(String(64), nullable=False, index=True)
     uploaded_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    content_base64 = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)

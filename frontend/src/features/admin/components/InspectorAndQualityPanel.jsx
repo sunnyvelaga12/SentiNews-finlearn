@@ -5,7 +5,8 @@ import { generateUUID, BLOCK_CAPABILITIES } from '../utils/blockRegistry';
 export const InspectorAndQualityPanel = ({ selectedBlock, selectedBlockIndex = 0, qualityResult, onUpdateSelectedBlock, onJumpToBlock, onApplyQuickFix, }) => {
     const [activeTab, setActiveTab] = useState('PROPERTIES');
     const cType = selectedBlock ? (selectedBlock.content_type || selectedBlock.type || 'TEXT') : 'TEXT';
-    const isPureContent = ['HEADING', 'TEXT', 'IMAGE', 'CALLOUT', 'ANALOGY', 'TABLE'].includes(cType);
+    const isInteractiveType = Boolean(selectedBlock?.response_type && selectedBlock.response_type !== 'NONE');
+    const isPureContent = !isInteractiveType && ['HEADING', 'CALLOUT', 'ANALOGY', 'TABLE', 'CANDLESTICK'].includes(cType);
     const blockTitle = selectedBlock?.title || selectedBlock?.content?.title || BLOCK_CAPABILITIES[cType]?.label || cType || 'Block';
     // Hard Semantic Guardrail helper: if MASTERY_EVIDENCE chosen, ensure response_type is not NONE
     const handleEvidenceRoleChange = (role) => {
@@ -369,10 +370,35 @@ export const InspectorAndQualityPanel = ({ selectedBlock, selectedBlockIndex = 0
                 {/* Response Type */}
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-slate-700">Response Type</label>
-                  <select value={selectedBlock.response_type || 'SINGLE_CHOICE'} onChange={(e) => onUpdateSelectedBlock({
-                      ...selectedBlock,
-                      response_type: e.target.value,
-                  })} className="w-full p-2 text-xs font-medium border border-slate-200 rounded-md bg-slate-50 focus:outline-none focus:border-blue-500">
+                  <select value={selectedBlock.response_type || 'SINGLE_CHOICE'} onChange={(e) => {
+                      const nextRType = e.target.value;
+                      const updates = { response_type: nextRType };
+                      if (nextRType === 'IMAGE_SELECTION') {
+                          updates.content_type = 'IMAGE';
+                          if (!selectedBlock.options || selectedBlock.options.length < 2 || !selectedBlock.options.some((o) => 'media_asset_id' in o)) {
+                              const opt1 = generateUUID();
+                              const opt2 = generateUUID();
+                              const opt3 = generateUUID();
+                              const opt4 = generateUUID();
+                              updates.options = [
+                                  { id: opt1, label: 'Pattern A', text: 'Pattern A', media_asset_id: null, is_correct: true },
+                                  { id: opt2, label: 'Pattern B', text: 'Pattern B', media_asset_id: null, is_correct: false },
+                                  { id: opt3, label: 'Pattern C', text: 'Pattern C', media_asset_id: null, is_correct: false },
+                                  { id: opt4, label: 'Pattern D', text: 'Pattern D', media_asset_id: null, is_correct: false },
+                              ];
+                              updates.correct_option_id = opt1;
+                              updates.evaluation = {
+                                  ...(selectedBlock.evaluation || {}),
+                                  correct_option_id: opt1,
+                                  explanation: 'Explanation for learner feedback.',
+                              };
+                          }
+                      }
+                      onUpdateSelectedBlock({
+                          ...selectedBlock,
+                          ...updates,
+                      });
+                  }} className="w-full p-2 text-xs font-medium border border-slate-200 rounded-md bg-slate-50 focus:outline-none focus:border-blue-500">
                     <option value="SINGLE_CHOICE">SINGLE_CHOICE (Single Choice MCQ)</option>
                     <option value="MULTIPLE_CHOICE">MULTIPLE_CHOICE (Multi-Select Checkboxes)</option>
                     <option value="IMAGE_SELECTION">IMAGE_SELECTION (Image Multiple Choice)</option>

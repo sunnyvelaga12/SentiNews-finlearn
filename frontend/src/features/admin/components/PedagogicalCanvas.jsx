@@ -57,10 +57,17 @@ import {
  * Renders derived media display image dynamically from canonical media_asset_id.
  * URLs are strictly derived and NEVER read from or persisted into blocks_json.
  */
-function MediaImagePreview({ mediaAssetId, alt = '', className = '', fallbackText = 'No image selected' }) {
-  const { url, isLoading } = useMediaAsset(mediaAssetId);
+function MediaImagePreview({ mediaAssetId, imageUrl = '', alt = '', className = '', fallbackText = 'No image selected' }) {
+  const { url: derivedUrl, isLoading } = useMediaAsset(mediaAssetId);
+  const rawUrl = derivedUrl || imageUrl;
+  const effectiveUrl = rawUrl ? resolveEndpointUrl(rawUrl) : null;
+  const [hasError, setHasError] = useState(false);
 
-  if (!mediaAssetId) {
+  useEffect(() => {
+    setHasError(false);
+  }, [mediaAssetId, imageUrl, effectiveUrl]);
+
+  if (!mediaAssetId && !imageUrl) {
     return (
       <div className={`flex flex-col items-center justify-center bg-slate-50 border border-dashed border-slate-300 text-slate-400 p-4 rounded-lg ${className}`}>
         <ImageIcon className="w-6 h-6 text-slate-300 mb-1" />
@@ -77,24 +84,26 @@ function MediaImagePreview({ mediaAssetId, alt = '', className = '', fallbackTex
     );
   }
 
-  if (!url) {
+  if (!effectiveUrl || hasError) {
     return (
-      <div className={`flex flex-col items-center justify-center bg-rose-50 border border-rose-200 text-rose-500 p-3 rounded-lg ${className}`}>
-        <AlertCircle className="w-4 h-4 mb-1" />
-        <span className="text-[10px] font-mono">Asset: {String(mediaAssetId).slice(0, 8)}...</span>
-        <span className="text-[10px] text-rose-400">Unresolved asset</span>
+      <div className={`flex flex-col items-center justify-center bg-amber-50/80 border border-amber-200 text-amber-700 p-3.5 rounded-lg ${className}`}>
+        <AlertTriangle className="w-5 h-5 text-amber-500 mb-1" />
+        <span className="text-xs font-bold text-amber-800">Image file unavailable</span>
+        <span className="text-[10px] text-amber-600 text-center max-w-xs mt-0.5">
+          {mediaAssetId ? `Asset ID: ${String(mediaAssetId).slice(0, 8)}...` : 'Image URL not reachable'}
+        </span>
+        <span className="text-[10px] text-slate-400 mt-1">Use "Change Image" below to select or upload a new image</span>
       </div>
     );
   }
 
   return (
     <img
-      src={url}
+      src={effectiveUrl}
       alt={alt || 'Lesson media'}
       className={className}
-      onError={(e) => {
-        e.target.onerror = null;
-        e.target.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect fill="%23f1f5f9" width="100" height="100"/><text fill="%2394a3b8" x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="12">Image</text></svg>';
+      onError={() => {
+        setHasError(true);
       }}
     />
   );
@@ -875,8 +884,9 @@ export const PedagogicalCanvas = ({
                         const globalIdx = page.blockIndices[bInPageIdx];
                         const isSelected = globalIdx === activeBlockIndex;
                         const cType = b.content_type || b.type || 'TEXT';
-                        const isPureContent = ['HEADING', 'TEXT', 'IMAGE', 'CALLOUT', 'ANALOGY', 'TABLE'].includes(cType);
-                        const rType = isPureContent ? 'NONE' : (b.response_type || 'NONE');
+                        const isInteractiveType = Boolean(b.response_type && b.response_type !== 'NONE');
+                        const isPureContent = !isInteractiveType && ['HEADING', 'CALLOUT', 'ANALOGY', 'TABLE', 'CANDLESTICK'].includes(cType);
+                        const rType = b.response_type || 'NONE';
                         const config = contentTypeConfig[cType] || contentTypeConfig.TEXT;
                         const content = b.content || {};
                         const isDragTarget = dropTargetIdx === globalIdx && draggingIdx !== globalIdx;
@@ -909,7 +919,7 @@ export const PedagogicalCanvas = ({
                                 </div>
                                 <div className="space-y-3 flex-1">
                                   <div className="flex items-center gap-2 flex-wrap">
-                                    <select value={cType} onChange={(e) => { const nextType = e.target.value; const isNextPure = ['HEADING', 'TEXT', 'IMAGE', 'CALLOUT', 'ANALOGY', 'TABLE'].includes(nextType); onUpdateBlock(globalIdx, { ...b, content_type: nextType, type: nextType, ...(isNextPure ? { response_type: 'NONE', evidence_role: 'NONE', options: undefined, evaluation: undefined, correct_option_id: undefined } : {}) }); }} onClick={(e) => e.stopPropagation()} className={`text-[11px] font-bold rounded px-2 py-0.5 border bg-white focus:outline-none focus:border-blue-500 ${config.color}`}>
+                                    <select value={cType} onChange={(e) => { const nextType = e.target.value; const isNextPure = ['HEADING', 'CALLOUT', 'ANALOGY', 'TABLE', 'CANDLESTICK'].includes(nextType); onUpdateBlock(globalIdx, { ...b, content_type: nextType, type: nextType, ...(isNextPure ? { response_type: 'NONE', evidence_role: 'NONE', options: undefined, evaluation: undefined, correct_option_id: undefined } : {}) }); }} onClick={(e) => e.stopPropagation()} className={`text-[11px] font-bold rounded px-2 py-0.5 border bg-white focus:outline-none focus:border-blue-500 ${config.color}`}>
                                       <option value="HEADING">HEADING</option><option value="TEXT">TEXT</option><option value="IMAGE">IMAGE</option><option value="CALLOUT">CALLOUT</option><option value="ANALOGY">ANALOGY</option><option value="CANDLESTICK">CANDLESTICK</option><option value="TABLE">TABLE</option><option value="SCENARIO">SCENARIO</option>
                                     </select>
                                     {isPureContent ? (<span className="text-[11px] font-bold rounded px-2 py-0.5 border bg-slate-100 text-slate-600 border-slate-200">PURE CONTENT</span>) : (
@@ -921,28 +931,47 @@ export const PedagogicalCanvas = ({
                                         const opt3 = generateUUID();
                                         const opt4 = generateUUID();
                                         let defaultOptions = b.options;
-                                        if (isInteractive && (!b.options || b.options.length === 0)) {
-                                          if (nextRType === 'IMAGE_SELECTION') {
+                                        if (nextRType === 'IMAGE_SELECTION') {
+                                          if (!b.options || b.options.length < 2 || !b.options.some((o) => 'media_asset_id' in o)) {
                                             defaultOptions = [
                                               { id: opt1, label: 'Pattern A', text: 'Pattern A', media_asset_id: null, is_correct: true },
                                               { id: opt2, label: 'Pattern B', text: 'Pattern B', media_asset_id: null, is_correct: false },
                                               { id: opt3, label: 'Pattern C', text: 'Pattern C', media_asset_id: null, is_correct: false },
-                                              { id: opt4, label: 'Pattern D', text: 'Pattern D', media_asset_id: null, is_correct: false },
+                                              { id: opt4, media_asset_id: null, label: 'Pattern D', text: 'Pattern D', is_correct: false },
                                             ];
                                           } else {
-                                            defaultOptions = [
-                                              { id: opt1, text: 'Option A', label: 'Option A', is_correct: true },
-                                              { id: opt2, text: 'Option B', label: 'Option B', is_correct: false },
-                                            ];
+                                            defaultOptions = b.options.map((o, idx) => ({
+                                              ...o,
+                                              media_asset_id: o.media_asset_id !== undefined ? o.media_asset_id : null,
+                                              label: o.label || o.text || `Pattern ${String.fromCharCode(65 + idx)}`,
+                                              text: o.text || o.label || `Pattern ${String.fromCharCode(65 + idx)}`,
+                                            }));
                                           }
+                                        } else if (isInteractive && (!b.options || b.options.length === 0)) {
+                                          defaultOptions = [
+                                            { id: opt1, text: 'Option A', label: 'Option A', is_correct: true },
+                                            { id: opt2, text: 'Option B', label: 'Option B', is_correct: false },
+                                          ];
                                         }
+                                        const correctOptId = nextRType === 'IMAGE_SELECTION'
+                                          ? (defaultOptions?.find((o) => o.is_correct)?.id || defaultOptions?.[0]?.id || opt1)
+                                          : (b.correct_option_id || opt1);
                                         onUpdateBlock(globalIdx, {
                                           ...b,
+                                          content_type: nextRType === 'IMAGE_SELECTION' ? 'IMAGE' : b.content_type,
                                           response_type: nextRType,
                                           evidence_role: isInteractive && b.evidence_role === 'NONE' ? 'FORMATIVE' : b.evidence_role,
                                           options: defaultOptions,
-                                          evaluation: isInteractive && !b.evaluation ? { correct_option_id: opt1, explanation: 'Explanation for learner feedback.' } : b.evaluation,
-                                          correct_option_id: isInteractive ? (b.correct_option_id || opt1) : undefined
+                                          prompt: nextRType === 'IMAGE_SELECTION' && !b.prompt && !content.prompt
+                                            ? 'Select the pattern matching the described formation:'
+                                            : b.prompt,
+                                          content: nextRType === 'IMAGE_SELECTION' && !content.prompt && !b.prompt
+                                            ? { ...content, prompt: 'Select the pattern matching the described formation:' }
+                                            : content,
+                                          evaluation: isInteractive && !b.evaluation
+                                            ? { correct_option_id: correctOptId, explanation: 'Explanation for learner feedback.' }
+                                            : (isInteractive && b.evaluation ? { ...b.evaluation, correct_option_id: correctOptId } : b.evaluation),
+                                          correct_option_id: isInteractive ? correctOptId : undefined,
                                         });
                                       }} onClick={(e) => e.stopPropagation()} className={`text-[11px] font-bold rounded px-2 py-0.5 border focus:outline-none focus:border-blue-500 ${rType === 'NONE' ? 'bg-slate-100 text-slate-600 border-slate-200' : 'bg-emerald-50 text-emerald-700 border-emerald-300'}`}>
                                         <option value="NONE">PURE CONTENT (No Evaluation)</option><option value="SINGLE_CHOICE">SINGLE CHOICE MCQ</option><option value="MULTIPLE_CHOICE">MULTIPLE CHOICE</option><option value="IMAGE_SELECTION">IMAGE SELECTION MCQ</option><option value="TRUE_FALSE">TRUE / FALSE</option>
@@ -960,7 +989,7 @@ export const PedagogicalCanvas = ({
 
                                   {cType === 'TEXT' && (<div className="space-y-1.5"><textarea value={content.text || content.body || ''} onChange={(e) => onUpdateBlock(globalIdx, { ...b, content: { ...content, text: e.target.value } })} placeholder="Write financial concept text here (Markdown supported)..." rows={4} className="w-full text-sm text-slate-700 bg-white border border-slate-200 rounded-lg p-3 focus:outline-none focus:border-blue-500 resize-y font-mono leading-relaxed" /></div>)}
 
-                                  {cType === 'IMAGE' && rType !== 'IMAGE_SELECTION' && (() => { const MediaDisplay = ({ assetId }) => { const { url, status } = useMediaAsset(assetId); if (!assetId) return <span className="text-xs text-slate-400">No image selected</span>; if (status === 'loading') return <span className="text-xs text-slate-400">Loading...</span>; if (!url) return <span className="text-xs text-red-400">Asset not found</span>; return <img src={url} alt={content.alt_text || 'Image'} className="max-h-32 rounded-lg border border-slate-200" />; }; const assetId = b.media_asset_id || content.media_asset_id; return (<div className="space-y-2 p-3 bg-blue-50/30 rounded-lg border border-blue-100"><MediaDisplay assetId={assetId} /><button type="button" onClick={(e) => { e.stopPropagation(); openMediaForBlock(globalIdx); }} className="text-[11px] font-bold text-blue-600 hover:text-blue-800 bg-white border border-blue-200 px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors"><Upload className="w-3 h-3" />{assetId ? 'Change Image' : 'Select from Media Library'}</button><input type="text" value={content.alt_text || ''} onChange={(e) => onUpdateBlock(globalIdx, { ...b, content: { ...content, alt_text: e.target.value } })} placeholder="Alt text" className="w-full text-xs border border-blue-100 rounded px-2 py-1 bg-white focus:outline-none focus:border-blue-400" /><input type="text" value={content.caption || ''} onChange={(e) => onUpdateBlock(globalIdx, { ...b, content: { ...content, caption: e.target.value } })} placeholder="Caption (optional)" className="w-full text-xs border border-blue-100 rounded px-2 py-1 bg-white focus:outline-none focus:border-blue-400" /></div>); })()}
+                                  {cType === 'IMAGE' && rType !== 'IMAGE_SELECTION' && (() => { const assetId = b.media_asset_id || content.media_asset_id; return (<div className="space-y-2 p-3 bg-blue-50/30 rounded-lg border border-blue-100"><MediaImagePreview mediaAssetId={assetId} imageUrl={b.image_url || content.image_url || content.url} alt={content.alt_text || 'Image'} className="max-h-36 max-w-full rounded-lg border border-slate-200 object-contain bg-white mx-auto block" fallbackText="No image selected" /><button type="button" onClick={(e) => { e.stopPropagation(); openMediaForBlock(globalIdx); }} className="text-[11px] font-bold text-blue-600 hover:text-blue-800 bg-white border border-blue-200 px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors"><Upload className="w-3 h-3" />{assetId ? 'Change Image' : 'Select from Media Library'}</button><input type="text" value={content.alt_text || ''} onChange={(e) => onUpdateBlock(globalIdx, { ...b, content: { ...content, alt_text: e.target.value } })} placeholder="Alt text" className="w-full text-xs border border-blue-100 rounded px-2 py-1 bg-white focus:outline-none focus:border-blue-400" /><input type="text" value={content.caption || ''} onChange={(e) => onUpdateBlock(globalIdx, { ...b, content: { ...content, caption: e.target.value } })} placeholder="Caption (optional)" className="w-full text-xs border border-blue-100 rounded px-2 py-1 bg-white focus:outline-none focus:border-blue-400" /><div className="flex items-center justify-between pt-2 border-t border-blue-100"><span className="text-[10px] text-blue-500 font-medium">Need an interactive question where learners pick an image?</span><button type="button" onClick={(e) => { e.stopPropagation(); const opt1 = generateUUID(); const opt2 = generateUUID(); const opt3 = generateUUID(); const opt4 = generateUUID(); onUpdateBlock(globalIdx, { ...b, content_type: 'IMAGE', response_type: 'IMAGE_SELECTION', activity_type: b.activity_type === 'OBSERVE' ? 'PRACTICE' : (b.activity_type || 'PRACTICE'), evidence_role: b.evidence_role === 'NONE' ? 'FORMATIVE' : (b.evidence_role || 'FORMATIVE'), prompt: b.prompt || content.prompt || 'Select the pattern matching the described formation:', content: { ...content, prompt: content.prompt || b.prompt || 'Select the pattern matching the described formation:' }, options: [{ id: opt1, label: 'Pattern A', text: 'Pattern A', media_asset_id: null, is_correct: true }, { id: opt2, label: 'Pattern B', text: 'Pattern B', media_asset_id: null, is_correct: false }, { id: opt3, label: 'Pattern C', text: 'Pattern C', media_asset_id: null, is_correct: false }, { id: opt4, label: 'Pattern D', text: 'Pattern D', media_asset_id: null, is_correct: false }], evaluation: { correct_option_id: opt1, explanation: 'Explanation for learner feedback.' }, correct_option_id: opt1 }); }} className="text-[10px] font-bold text-sky-700 bg-sky-50 hover:bg-sky-100 border border-sky-200 px-2 py-1 rounded transition-colors flex items-center gap-1 shadow-sm"><ImageIcon className="w-3 h-3 text-sky-600" />Turn into Image Selection MCQ</button></div></div>); })()}
 
                                   {cType === 'CALLOUT' && (<div className="space-y-2 p-3 bg-amber-50/50 rounded-lg border border-amber-100"><select value={content.callout_type || content.variant || 'TIP'} onChange={(e) => onUpdateBlock(globalIdx, { ...b, content: { ...content, callout_type: e.target.value, variant: e.target.value } })} className="text-xs font-bold border border-amber-200 rounded px-2 py-1 bg-white"><option value="TIP">💡 Tip</option><option value="RULE">📏 Rule</option><option value="WARNING">⚠️ Warning</option><option value="KEY_TAKEAWAY">🔑 Key Takeaway</option></select><textarea value={content.text || ''} onChange={(e) => onUpdateBlock(globalIdx, { ...b, content: { ...content, text: e.target.value } })} placeholder="Callout text..." rows={2} className="w-full text-sm border border-amber-200 rounded p-2 bg-white focus:outline-none focus:border-amber-500" /></div>)}
 

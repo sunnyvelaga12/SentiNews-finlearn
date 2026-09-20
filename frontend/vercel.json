@@ -1,6 +1,14 @@
 {
   "rewrites": [
     {
+      "source": "/uploads/:path*",
+      "destination": "https://sentinews-learn-api.onrender.com/uploads/:path*"
+    },
+    {
+      "source": "/api/:path*",
+      "destination": "https://sentinews-learn-api.onrender.com/api/:path*"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
