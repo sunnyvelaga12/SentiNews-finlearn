@@ -71,7 +71,7 @@ export const LessonOverviewPage = () => {
         }
         catch (err) {
             console.warn('Using fallback local session navigation:', err);
-            navigate('/learn/sessions/active');
+            navigate('/learn/sessions/active', { state: { lessonSlug: lesson.slug, lessonTitle: lesson.title } });
         }
         finally {
             setIsStarting(false);

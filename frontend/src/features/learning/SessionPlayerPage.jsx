@@ -174,6 +174,9 @@ export const SessionPlayerPage = () => {
                         body: JSON.stringify({ mode: 'DEFAULT', lesson_slug: location.state?.lessonSlug || '' }),
                     });
                     currentSessId = createData.session_id;
+                    if (typeof window !== 'undefined' && currentSessId) {
+                        window.history.replaceState(null, '', `/learn/sessions/${currentSessId}`);
+                    }
                     if (isMounted) {
                         setActiveSessionId(currentSessId);
                         if (createData.lesson_slug)
