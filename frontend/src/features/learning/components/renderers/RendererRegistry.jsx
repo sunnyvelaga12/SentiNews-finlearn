@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { CandlestickVisualizer, formatCurrency } from '../../../../components/charts/CandlestickVisualizer';
 import { getCachedMediaUrl, useMediaAsset } from '../../../admin/utils/mediaResolver';
 import { resolveEndpointUrl } from '../../../../services/apiClient';
